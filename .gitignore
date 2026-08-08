@@ -1,0 +1,18 @@
+# Python 가상환경 (재생성 가능 — pip install로 복원)
+venv/
+.venv/
+
+# Python 캐시
+__pycache__/
+*.pyc
+
+# 텐서보드 학습 로그 (용량 커지고 재생성 가능)
+runs/
+
+# 중간 체크포인트는 제외, 최종 모델(*_final*)만 커밋
+models/*_steps.zip
+models/*_steps.pkl
+
+# OS/에디터
+Thumbs.db
+.DS_Store

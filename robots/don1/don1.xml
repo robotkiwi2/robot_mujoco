@@ -1,0 +1,96 @@
+<mujoco model="don1">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+
+  <default>
+    <default class="leg">
+      <joint type="hinge" axis="0 1 0" range="-0.9 0.9" damping="0.3" armature="0.01"/>
+      <geom type="capsule" size="0.012" rgba="0.15 0.15 0.15 1" friction="1.2 0.02 0.001"
+            contype="1" conaffinity="1"/>
+      <motor ctrlrange="-4 4" gear="1"/>
+    </default>
+    <default class="touch_site">
+      <site rgba="1 0 0 0.3" group="4"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="torso" pos="0 0 0.26">
+      <freejoint/>
+      <geom name="torso_geom" type="box" size="0.15 0.1 0.05" rgba="0.3 0.5 0.8 1" mass="2"/>
+
+      <!-- IMU 부착 지점 (몸체 중심) -->
+      <site name="imu_site" pos="0 0 0" size="0.01" rgba="0 1 0 0.6"/>
+
+      <!-- 몸통 하단(배) 터치 센서 영역 -->
+      <site name="belly_touch_site" class="touch_site" type="box" pos="0 0 -0.05" size="0.15 0.1 0.005"/>
+
+      <!-- 몸통 상단(등) 터치 센서 영역 -->
+      <site name="back_touch_site" class="touch_site" type="box" pos="0 0 0.05" size="0.15 0.1 0.005"/>
+
+      <!-- 앞왼쪽(FL) 다리: 힙 관절 1개, 무릎 없음 -->
+      <body name="FL_leg" pos="0.15 0.1 -0.05">
+        <joint name="FL_hip" class="leg"/>
+        <geom name="FL_leg_geom" class="leg" fromto="0 0 0 0 0 -0.2"/>
+        <site name="FL_foot_site" class="touch_site" type="sphere" pos="0 0 -0.2" size="0.02"/>
+      </body>
+
+      <!-- 앞오른쪽(FR) 다리 -->
+      <body name="FR_leg" pos="0.15 -0.1 -0.05">
+        <joint name="FR_hip" class="leg"/>
+        <geom name="FR_leg_geom" class="leg" fromto="0 0 0 0 0 -0.2"/>
+        <site name="FR_foot_site" class="touch_site" type="sphere" pos="0 0 -0.2" size="0.02"/>
+      </body>
+
+      <!-- 뒤왼쪽(RL) 다리 -->
+      <body name="RL_leg" pos="-0.15 0.1 -0.05">
+        <joint name="RL_hip" class="leg"/>
+        <geom name="RL_leg_geom" class="leg" fromto="0 0 0 0 0 -0.2"/>
+        <site name="RL_foot_site" class="touch_site" type="sphere" pos="0 0 -0.2" size="0.02"/>
+      </body>
+
+      <!-- 뒤오른쪽(RR) 다리 -->
+      <body name="RR_leg" pos="-0.15 -0.1 -0.05">
+        <joint name="RR_hip" class="leg"/>
+        <geom name="RR_leg_geom" class="leg" fromto="0 0 0 0 0 -0.2"/>
+        <site name="RR_foot_site" class="touch_site" type="sphere" pos="0 0 -0.2" size="0.02"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="FL_hip_motor" joint="FL_hip" class="leg"/>
+    <motor name="FR_hip_motor" joint="FR_hip" class="leg"/>
+    <motor name="RL_hip_motor" joint="RL_hip" class="leg"/>
+    <motor name="RR_hip_motor" joint="RR_hip" class="leg"/>
+  </actuator>
+
+  <sensor>
+    <!-- 관절 회전각 센서 (다리 4개) -->
+    <jointpos name="FL_hip_pos" joint="FL_hip"/>
+    <jointpos name="FR_hip_pos" joint="FR_hip"/>
+    <jointpos name="RL_hip_pos" joint="RL_hip"/>
+    <jointpos name="RR_hip_pos" joint="RR_hip"/>
+
+    <!-- 관절 각속도 센서 (RL 관측용 — 걸음의 속도감을 파악하기 위해 필요) -->
+    <jointvel name="FL_hip_vel" joint="FL_hip"/>
+    <jointvel name="FR_hip_vel" joint="FR_hip"/>
+    <jointvel name="RL_hip_vel" joint="RL_hip"/>
+    <jointvel name="RR_hip_vel" joint="RR_hip"/>
+
+    <!-- 몸체 IMU: 자세(orientation) + 각속도(gyro) + 가속도(accelerometer) -->
+    <framequat name="imu_orient" objtype="site" objname="imu_site"/>
+    <gyro name="imu_gyro" site="imu_site"/>
+    <accelerometer name="imu_acc" site="imu_site"/>
+
+    <!-- 다리 끝 터치 센서 (4개) -->
+    <touch name="FL_foot_touch" site="FL_foot_site"/>
+    <touch name="FR_foot_touch" site="FR_foot_site"/>
+    <touch name="RL_foot_touch" site="RL_foot_site"/>
+    <touch name="RR_foot_touch" site="RR_foot_site"/>
+
+    <!-- 몸통 하단(배) / 상단(등) 터치 센서 -->
+    <touch name="belly_touch" site="belly_touch_site"/>
+    <touch name="back_touch" site="back_touch_site"/>
+  </sensor>
+</mujoco>
