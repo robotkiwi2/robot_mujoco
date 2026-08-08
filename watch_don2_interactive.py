@@ -140,6 +140,8 @@ def main():
                 (mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtGridPos.mjGRID_BOTTOMLEFT, "status", stats),
             ])
 
+        applied_skill = None  # 마스터 env에 실제로 적용된 mode — 아직 없음(첫 스텝에서 강제 동기화)
+
         while viewer.is_running() and not quit_requested:
             t0 = time.time()
 
@@ -149,11 +151,24 @@ def main():
                     print(f"[{name}] 갱신: {model_path}")
                 reload_requested = False
 
+            skill = current_skill_name()
+            if skill != applied_skill:
+                # 마스터 env는 물리 시뮬레이션 하나를 공유하므로, 스텝을 어떻게 적용할지
+                # 결정하는 env.mode(및 목표값)를 선택된 스킬에 맞게 동기화해야 한다.
+                # 안 해주면 예: toe_curl(12차원 행동)을 mode="walk"(16차원 다리 제어) 코드로
+                # 처리하려다 broadcast 에러로 죽는다 — 실제로 겪었던 크래시의 원인.
+                kw = SKILLS[skill]["env_kwargs"]
+                env.mode = kw["mode"]
+                env.target_speed = kw.get("target_speed", env.target_speed)
+                env.target_yaw_rate = kw.get("target_yaw_rate", env.target_yaw_rate)
+                env.toe_curl_freq = kw.get("toe_curl_freq", env.toe_curl_freq)
+                obs, _ = env.reset()  # 자세 전환(서기 <-> 눕기)이 필요할 수 있어 항상 리셋
+                applied_skill = skill
+
             if reset_requested:
                 obs, _ = env.reset()
                 reset_requested = False
 
-            skill = current_skill_name()
             raw_obs = obs[: SKILLS[skill]["obs_dim"]]
             norm_obs = normalizers[skill].normalize_obs(raw_obs[None, :])
             action, _ = policies[skill].predict(norm_obs, deterministic=True)

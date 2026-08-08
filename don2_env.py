@@ -123,7 +123,10 @@ class Don2Env(gym.Env):
         mujoco.mj_forward(self.model, self.data)
         self._steps = 0
         self._prev_x = float(self.data.qpos[0])
-        self._prev_action = np.zeros(self.action_space.shape[0], dtype=np.float32)
+        # self.action_space는 생성 시점의 mode로 고정되어 이후 mode를 동적으로 바꿔도
+        # 갱신되지 않으므로(예: 인터랙티브 뷰어의 스킬 전환), 여기서 현재 mode 기준으로 직접 계산한다.
+        n_act = len(TOE_ACT_NAMES) if self.mode == "toe_curl" else len(LEG_ACT_NAMES)
+        self._prev_action = np.zeros(n_act, dtype=np.float32)
         if self.energy:
             # 초기 SoC 랜덤화: 저에너지 상태의 고통도 경험하도록 (domain randomization)
             soc0 = float(self.np_random.uniform(0.25, 1.0))
