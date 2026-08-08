@@ -30,9 +30,10 @@
     <default class="link">
       <geom type="capsule" rgba="0.6 0.6 0.65 1" friction="1.0 0.01 0.001"/>
     </default>
-    <!-- 발가락: 고무 코팅 팁 (마찰 높음), 스프링 복원(신전) + 텐던 굴곡 -->
+    <!-- 발가락: 고무 코팅 팁 (마찰 높음), 스프링 복원(신전) + 텐던 굴곡.
+         깊은 조임(약 115도)이 가능하도록: 넓은 range + 약한 스프링(0.08) + 굵은 모멘트암(삽입점 10mm) -->
     <default class="toe">
-      <joint type="hinge" range="-0.2 1.2" stiffness="0.25" springref="0" damping="0.015" armature="0.0005"/>
+      <joint type="hinge" range="-0.25 2.0" stiffness="0.08" springref="0" damping="0.015" armature="0.0005"/>
       <geom type="capsule" size="0.006" mass="0.008" rgba="0.2 0.2 0.2 1" friction="1.4 0.02 0.002"/>
     </default>
     <!-- 접촉센서 패드: group 1 = 뷰어 기본 표시. 표면에 붉은 반투명 패드로 항상 보임 -->
@@ -139,31 +140,33 @@
             <site name="FL_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
             <site name="FL_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
             <site name="FL_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <geom class="xl430" pos="-0.014 0 -0.108"/> <!-- 발목 서보: 종아리 하단 장착, 브래킷 링키지로 발목 구동(말단 관성 절감) -->
             <body name="FL_foot" pos="0 0 -0.13">
               <joint name="FL_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
-              <geom class="xl430"/>
+              <geom name="FL_ankle_bracket" type="box" size="0.009 0.007 0.005" mass="0.008"
+                    contype="0" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
               <geom name="FL_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
                     rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
               <site name="FL_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
               <site name="FL_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
               <site name="FL_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
-              <site name="FL_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <site name="FL_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.016 0.009 0.0025"/>
               <body name="FL_toe_f1" pos="0.039 0.009 -0.022">
                 <joint name="FL_toe_f1_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="FL_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FL_toe_f1_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="FL_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="FL_toe_f2" pos="0.039 -0.009 -0.022">
                 <joint name="FL_toe_f2_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="FL_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FL_toe_f2_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="FL_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="FL_toe_b" pos="-0.027 0 -0.022">
-                <joint name="FL_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <joint name="FL_toe_b_j" class="toe" axis="0 -1 0" range="-0.25 1.8"/>
                 <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
-                <site name="FL_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="FL_toe_b_insert" pos="-0.007 0 -0.010" class="tendonsite"/>
                 <site name="FL_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
               </body>
             </body>
@@ -190,31 +193,33 @@
             <site name="FR_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
             <site name="FR_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
             <site name="FR_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <geom class="xl430" pos="-0.014 0 -0.108"/>
             <body name="FR_foot" pos="0 0 -0.13">
               <joint name="FR_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
-              <geom class="xl430"/>
+              <geom name="FR_ankle_bracket" type="box" size="0.009 0.007 0.005" mass="0.008"
+                    contype="0" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
               <geom name="FR_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
                     rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
               <site name="FR_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
               <site name="FR_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
               <site name="FR_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
-              <site name="FR_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <site name="FR_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.016 0.009 0.0025"/>
               <body name="FR_toe_f1" pos="0.039 0.009 -0.022">
                 <joint name="FR_toe_f1_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="FR_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FR_toe_f1_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="FR_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="FR_toe_f2" pos="0.039 -0.009 -0.022">
                 <joint name="FR_toe_f2_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="FR_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FR_toe_f2_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="FR_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="FR_toe_b" pos="-0.027 0 -0.022">
-                <joint name="FR_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <joint name="FR_toe_b_j" class="toe" axis="0 -1 0" range="-0.25 1.8"/>
                 <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
-                <site name="FR_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="FR_toe_b_insert" pos="-0.007 0 -0.010" class="tendonsite"/>
                 <site name="FR_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
               </body>
             </body>
@@ -243,31 +248,33 @@
             <site name="RL_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
             <site name="RL_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
             <site name="RL_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <geom class="xl430" pos="-0.014 0 -0.108"/>
             <body name="RL_foot" pos="0 0 -0.13">
               <joint name="RL_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
-              <geom class="xl430"/>
+              <geom name="RL_ankle_bracket" type="box" size="0.009 0.007 0.005" mass="0.008"
+                    contype="0" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
               <geom name="RL_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
                     rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
               <site name="RL_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
               <site name="RL_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
               <site name="RL_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
-              <site name="RL_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <site name="RL_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.016 0.009 0.0025"/>
               <body name="RL_toe_f1" pos="0.039 0.009 -0.022">
                 <joint name="RL_toe_f1_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="RL_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RL_toe_f1_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="RL_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="RL_toe_f2" pos="0.039 -0.009 -0.022">
                 <joint name="RL_toe_f2_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="RL_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RL_toe_f2_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="RL_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="RL_toe_b" pos="-0.027 0 -0.022">
-                <joint name="RL_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <joint name="RL_toe_b_j" class="toe" axis="0 -1 0" range="-0.25 1.8"/>
                 <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
-                <site name="RL_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="RL_toe_b_insert" pos="-0.007 0 -0.010" class="tendonsite"/>
                 <site name="RL_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
               </body>
             </body>
@@ -294,31 +301,33 @@
             <site name="RR_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
             <site name="RR_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
             <site name="RR_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <geom class="xl430" pos="-0.014 0 -0.108"/>
             <body name="RR_foot" pos="0 0 -0.13">
               <joint name="RR_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
-              <geom class="xl430"/>
+              <geom name="RR_ankle_bracket" type="box" size="0.009 0.007 0.005" mass="0.008"
+                    contype="0" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
               <geom name="RR_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
                     rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
               <site name="RR_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
               <site name="RR_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
               <site name="RR_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
-              <site name="RR_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <site name="RR_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.016 0.009 0.0025"/>
               <body name="RR_toe_f1" pos="0.039 0.009 -0.022">
                 <joint name="RR_toe_f1_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="RR_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RR_toe_f1_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="RR_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="RR_toe_f2" pos="0.039 -0.009 -0.022">
                 <joint name="RR_toe_f2_j" class="toe" axis="0 1 0"/>
                 <geom class="toe" fromto="0 0 0 0.040 0 0"/>
-                <site name="RR_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RR_toe_f2_insert" pos="0.008 0 -0.010" class="tendonsite"/>
                 <site name="RR_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
               </body>
               <body name="RR_toe_b" pos="-0.027 0 -0.022">
-                <joint name="RR_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <joint name="RR_toe_b_j" class="toe" axis="0 -1 0" range="-0.25 1.8"/>
                 <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
-                <site name="RR_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="RR_toe_b_insert" pos="-0.007 0 -0.010" class="tendonsite"/>
                 <site name="RR_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
               </body>
             </body>
@@ -397,18 +406,18 @@
     <position name="RR_knee_act" joint="RR_knee" class="xm430" ctrlrange="-2.4 -0.3"/>
     <position name="RR_ankle_act" joint="RR_ankle" class="xl430" ctrlrange="-0.8 1.2"/>
     <!-- 발가락 텐던: XL330 스풀. 당김(장력) 전용, ctrl = 장력[N] 0~15 -->
-    <motor name="FL_toe_f1_act" tendon="FL_toe_f1_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="FL_toe_f2_act" tendon="FL_toe_f2_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="FL_toe_b_act" tendon="FL_toe_b_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="FR_toe_f1_act" tendon="FR_toe_f1_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="FR_toe_f2_act" tendon="FR_toe_f2_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="FR_toe_b_act" tendon="FR_toe_b_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="RL_toe_f1_act" tendon="RL_toe_f1_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="RL_toe_f2_act" tendon="RL_toe_f2_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="RL_toe_b_act" tendon="RL_toe_b_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="RR_toe_f1_act" tendon="RR_toe_f1_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="RR_toe_f2_act" tendon="RR_toe_f2_t" gear="-1" ctrlrange="0 15"/>
-    <motor name="RR_toe_b_act" tendon="RR_toe_b_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="FL_toe_f1_act" tendon="FL_toe_f1_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="FL_toe_f2_act" tendon="FL_toe_f2_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="FL_toe_b_act" tendon="FL_toe_b_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="FR_toe_f1_act" tendon="FR_toe_f1_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="FR_toe_f2_act" tendon="FR_toe_f2_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="FR_toe_b_act" tendon="FR_toe_b_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="RL_toe_f1_act" tendon="RL_toe_f1_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="RL_toe_f2_act" tendon="RL_toe_f2_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="RL_toe_b_act" tendon="RL_toe_b_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="RR_toe_f1_act" tendon="RR_toe_f1_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="RR_toe_f2_act" tendon="RR_toe_f2_t" gear="-1" ctrlrange="0 30"/>
+    <motor name="RR_toe_b_act" tendon="RR_toe_b_t" gear="-1" ctrlrange="0 30"/>
   </actuator>
 
   <!-- ================= 센서 ================= -->

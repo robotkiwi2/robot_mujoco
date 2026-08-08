@@ -104,9 +104,15 @@ def main():
     global reset_requested, reload_requested
 
     policies, normalizers = {}, {}
-    for name, cfg in SKILLS.items():
-        policies[name], normalizers[name], model_path = load_skill(name, cfg)
-        print(f"[{name}] 로드: {model_path}")
+    for name, cfg in list(SKILLS.items()):
+        try:
+            policies[name], normalizers[name], model_path = load_skill(name, cfg)
+            print(f"[{name}] 로드: {model_path}")
+        except FileNotFoundError:
+            # 아직 체크포인트가 없는 스킬(학습 초기/재시작 직후)은 목록에서 제외하고 계속 진행
+            print(f"[{name}] 체크포인트 없음 - 목록에서 제외 (학습 후 재실행 또는 reload)")
+            del SKILLS[name]
+            SKILL_NAMES.remove(name)
 
     threading.Thread(target=stdin_loop, daemon=True).start()
 
