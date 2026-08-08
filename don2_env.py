@@ -37,14 +37,17 @@ class Don2Env(gym.Env):
     metadata = {"render_modes": [], "render_fps": 100}
 
     def __init__(self, frame_skip: int = 5, max_episode_steps: int = 500,
-                 mode: str = "sprint", target_speed: float = 0.35, energy: bool = True):
-        """mode: "sprint"(속도 최대화) 또는 "walk"(target_speed 추종).
+                 mode: str = "sprint", target_speed: float = 0.35,
+                 target_yaw_rate: float = 0.6, energy: bool = True):
+        """mode: "sprint"(속도 최대화) / "walk"(target_speed 추종) /
+                 "turn_left"(target_yaw_rate 추종, gyro z+ = 좌회전, 물리적으로 검증됨).
         energy: 에너지 내수용감각+고통 활성화 (관측 +3, 보상에 에너지 항 추가).
                 False는 에너지 도입 전 체크포인트(don2__flat__forward 초기) 재생용."""
         super().__init__()
-        assert mode in ("sprint", "walk")
+        assert mode in ("sprint", "walk", "turn_left")
         self.mode = mode
         self.target_speed = target_speed
+        self.target_yaw_rate = target_yaw_rate
         self.energy = energy
         self.model = load_model_with_floor()
         self.data = mujoco.MjData(self.model)
@@ -59,6 +62,8 @@ class Don2Env(gym.Env):
         self.leg_home = self.home_ctrl[self.leg_act_ids].copy()
         self.leg_lo = self.model.actuator_ctrlrange[self.leg_act_ids, 0]
         self.leg_hi = self.model.actuator_ctrlrange[self.leg_act_ids, 1]
+        gyro_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_gyro")
+        self._gyro_adr = self.model.sensor_adr[gyro_id]
 
         if self.energy:
             self.energy_state = EnergyState(
@@ -122,14 +127,22 @@ class Don2Env(gym.Env):
         if self.mode == "sprint":
             ctrl_cost = 0.01 * float(np.sum(np.square(action)))
             reward = 2.0 * forward_vel - ctrl_cost - tilt_penalty + 0.5
-        else:  # walk: 목표 속도 추종 + 동작 크기·급격함 페널티 강화(저속·저에너지 보행 유도)
+        elif self.mode == "walk":  # 목표 속도 추종 + 동작 크기·급격함 페널티 강화(저속·저에너지 보행)
             speed_error = abs(forward_vel - self.target_speed)
             ctrl_cost = 0.03 * float(np.sum(np.square(action)))
             jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
             reward = 1.5 * (1.0 - np.tanh(2.0 * speed_error)) - ctrl_cost - jerk_cost - tilt_penalty + 0.5
+        else:  # turn_left: 목표 회전율 추종(gyro z) + 전진 유지 보너스(제자리 회전만 하지 않도록)
+            yaw_rate = float(self.data.sensordata[self._gyro_adr + 2])
+            yaw_error = abs(yaw_rate - self.target_yaw_rate)
+            ctrl_cost = 0.02 * float(np.sum(np.square(action)))
+            jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
+            reward = (1.5 * (1.0 - np.tanh(2.0 * yaw_error)) + 0.3 * max(0.0, forward_vel)
+                      - ctrl_cost - jerk_cost - tilt_penalty + 0.5)
         self._prev_action = action.copy()
 
-        info = {"forward_vel": forward_vel, "upright": upright, "z": z}
+        info = {"forward_vel": forward_vel, "upright": upright, "z": z,
+                "yaw_rate": float(self.data.sensordata[self._gyro_adr + 2])}
         depleted = False
         if self.energy:
             power_W, soc = self.energy_state.step(self.data, dt)
