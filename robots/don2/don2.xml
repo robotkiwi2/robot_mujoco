@@ -1,0 +1,547 @@
+<mujoco model="don2">
+  <!-- don2: 정서-욕구 아키텍처(framework/DESIGN.md)용 사족보행 로봇.
+       모든 부품은 실존 제품 스펙 기반 (CLAUDE.md 원칙):
+       - 다리 서보: DYNAMIXEL XM430-W350 (82g, 4.1 N·m)
+       - 발목/목 서보: DYNAMIXEL XL430-W250 (57g, 1.4 N·m)
+       - 발가락 텐던 스풀: DYNAMIXEL XL330-M288 (23g, 0.52 N·m) - 허벅지/종아리 장착
+       - 배터리: 3S LiPo 5000mAh (370g, 55.5Wh), 컴퓨터: RPi4급 (100g)
+       전력 모델/센서 특성은 robot_config.py 참조. -->
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81" integrator="implicitfast"/>
+
+  <default>
+    <!-- 다리 메인 서보: XM430-W350 (위치제어 서보 그대로 모사) -->
+    <default class="xm430">
+      <geom type="box" size="0.0143 0.0233 0.017" mass="0.082" contype="0" conaffinity="0" rgba="0.15 0.15 0.2 1"/>
+      <joint damping="0.35" armature="0.008" frictionloss="0.06"/>
+      <position kp="8" forcerange="-4.1 4.1"/>
+    </default>
+    <!-- 발목/목 서보: XL430-W250 -->
+    <default class="xl430">
+      <geom type="box" size="0.0143 0.0233 0.017" mass="0.057" contype="0" conaffinity="0" rgba="0.2 0.2 0.25 1"/>
+      <joint damping="0.25" armature="0.005" frictionloss="0.04"/>
+      <position kp="4" forcerange="-1.4 1.4"/>
+    </default>
+    <!-- 발가락 텐던 스풀 모터: XL330-M288 (스풀 r=6mm → 최대 장력 ~86N, 사용범위 0~15N) -->
+    <default class="xl330">
+      <geom type="box" size="0.010 0.017 0.013" mass="0.023" contype="0" conaffinity="0" rgba="0.25 0.25 0.3 1"/>
+    </default>
+    <!-- 구조재: 탄소튜브/알루미늄 브래킷 (질량은 각 geom에 명시) -->
+    <default class="link">
+      <geom type="capsule" rgba="0.6 0.6 0.65 1" friction="1.0 0.01 0.001"/>
+    </default>
+    <!-- 발가락: 고무 코팅 팁 (마찰 높음), 스프링 복원(신전) + 텐던 굴곡 -->
+    <default class="toe">
+      <joint type="hinge" range="-0.2 1.2" stiffness="0.25" springref="0" damping="0.015" armature="0.0005"/>
+      <geom type="capsule" size="0.006" mass="0.008" rgba="0.2 0.2 0.2 1" friction="1.4 0.02 0.002"/>
+    </default>
+    <default class="touchsite">
+      <site rgba="1 0.3 0.3 0.25" group="4"/>
+    </default>
+    <default class="mountsite">
+      <site rgba="0.3 1 0.3 0.5" group="4" size="0.004"/>
+    </default>
+    <default class="tendonsite">
+      <site rgba="0.9 0.5 0.2 0.6" group="5" size="0.0025"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="torso" pos="0 0 0.30">
+      <freejoint/>
+      <!-- 몸통 프레임 (알루미늄+ABS 쉘, 0.30x0.16x0.09m) -->
+      <geom name="torso_frame" type="box" size="0.15 0.08 0.045" mass="0.75" rgba="0.35 0.45 0.7 1" friction="1.0 0.005 0.0001"/>
+      <!-- 배터리: 3S LiPo 5000mAh, 155x48x26mm, 370g - 후방 하부 배치 -->
+      <geom name="battery" type="box" size="0.0775 0.024 0.013" pos="-0.05 0 -0.02" mass="0.37"
+            contype="0" conaffinity="0" rgba="0.9 0.7 0.1 1"/>
+      <!-- 온보드 컴퓨터: RPi4급, 100g - 전방 배치 -->
+      <geom name="computer" type="box" size="0.035 0.028 0.010" pos="0.06 0 0.02" mass="0.10"
+            contype="0" conaffinity="0" rgba="0.1 0.6 0.3 1"/>
+
+      <!-- IMU (BNO085급 9축: 자세+자이로+가속도+지자기) 몸통 중심 -->
+      <site name="imu_site" pos="0 0 0.01" class="mountsite"/>
+      <!-- 배 밑 바닥색/반사율 센서 (TCS34725급) 마운트 -->
+      <site name="ground_sensor_site" pos="0 0 -0.046" class="mountsite"/>
+
+      <!-- 몸통 표면 접촉 센서 6개 -->
+      <site name="belly_touch" class="touchsite" type="box" pos="0 0 -0.046" size="0.14 0.075 0.004"/>
+      <site name="back_touch" class="touchsite" type="box" pos="0 0 0.046" size="0.14 0.075 0.004"/>
+      <site name="flank_l_touch" class="touchsite" type="box" pos="0 0.081 0" size="0.14 0.004 0.04"/>
+      <site name="flank_r_touch" class="touchsite" type="box" pos="0 -0.081 0" size="0.14 0.004 0.04"/>
+      <site name="bumper_f_touch" class="touchsite" type="box" pos="0.151 0 0" size="0.004 0.075 0.04"/>
+      <site name="bumper_b_touch" class="touchsite" type="box" pos="-0.151 0 0" size="0.004 0.075 0.04"/>
+
+      <!-- ================= 머리 (전방, 2축 목 + 감각기관 집중) ================= -->
+      <body name="neck_base" pos="0.15 0 0.035">
+        <joint name="neck_yaw" axis="0 0 1" range="-1.2 1.2" class="xl430"/>
+        <geom class="xl430"/>
+        <body name="head" pos="0.055 0 0.012">
+          <joint name="neck_pitch" axis="0 1 0" range="-0.9 0.6" class="xl430"/>
+          <geom class="xl430" pos="-0.012 0 0"/>
+          <geom name="head_shell" type="box" size="0.032 0.026 0.022" pos="0.028 0 0.004" mass="0.060"
+                rgba="0.4 0.5 0.75 1" friction="1.0 0.005 0.0001"/>
+
+          <!-- 가상센서 마운트: 콧구멍(냄새 좌/우), 광센서 -->
+          <site name="nostril_l" pos="0.061 0.013 0.006" class="mountsite"/>
+          <site name="nostril_r" pos="0.061 -0.013 0.006" class="mountsite"/>
+          <site name="light_sensor_site" pos="0.028 0 0.027" class="mountsite"/>
+
+          <!-- rangefinder 3개: 전방 + 좌/우 절벽감지 (site +Z 방향으로 발사) -->
+          <site name="rf_fwd" pos="0.061 0 0.014" zaxis="1 0 0" size="0.003" rgba="0 0.8 1 0.7"/>
+          <site name="rf_cliff_l" pos="0.055 0.014 -0.016" zaxis="0.55 0 -0.835" size="0.003" rgba="0 0.8 1 0.7"/>
+          <site name="rf_cliff_r" pos="0.055 -0.014 -0.016" zaxis="0.55 0 -0.835" size="0.003" rgba="0 0.8 1 0.7"/>
+
+          <!-- 머리 접촉 센서 5개 -->
+          <site name="head_nose_touch" class="touchsite" type="box" pos="0.061 0 0.004" size="0.003 0.024 0.018"/>
+          <site name="head_top_touch" class="touchsite" type="box" pos="0.028 0 0.027" size="0.030 0.024 0.003"/>
+          <site name="head_chin_touch" class="touchsite" type="box" pos="0.028 0 -0.019" size="0.030 0.024 0.003"/>
+          <site name="head_cheek_l_touch" class="touchsite" type="box" pos="0.028 0.027 0.004" size="0.030 0.003 0.018"/>
+          <site name="head_cheek_r_touch" class="touchsite" type="box" pos="0.028 -0.027 0.004" size="0.030 0.003 0.018"/>
+        </body>
+      </body>
+
+      <!-- ================= FL 다리 ================= -->
+      <body name="FL_hip" pos="0.13 0.09 -0.02">
+        <joint name="FL_abd" axis="1 0 0" range="-0.5 0.5" class="xm430"/>
+        <geom class="xm430"/>
+        <body name="FL_thigh" pos="0 0.045 0">
+          <joint name="FL_hip_pitch" axis="0 1 0" range="-1.5 1.5" class="xm430"/>
+          <geom class="xm430"/>
+          <geom name="FL_thigh_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.010" mass="0.040"/>
+          <geom class="xm430" pos="0 0 -0.13"/> <!-- 무릎 서보 (허벅지 하단 장착) -->
+          <geom class="xl330" pos="-0.014 0 -0.055"/> <!-- 뒷발가락 텐던 스풀 모터 (허벅지 후면) -->
+          <site name="FL_spool_b" pos="-0.018 0 -0.060" class="tendonsite"/>
+          <body name="FL_calf" pos="0 0 -0.13">
+            <joint name="FL_knee" axis="0 1 0" range="-2.4 -0.3" class="xm430"/>
+            <geom name="FL_calf_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.008" mass="0.030"/>
+            <geom class="xl330" pos="0.013 0.008 -0.050"/>  <!-- 앞발가락1 스풀 (종아리 전면) -->
+            <geom class="xl330" pos="0.013 -0.008 -0.050"/> <!-- 앞발가락2 스풀 -->
+            <site name="FL_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
+            <site name="FL_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
+            <site name="FL_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <body name="FL_foot" pos="0 0 -0.13">
+              <joint name="FL_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
+              <geom class="xl430"/>
+              <geom name="FL_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
+                    rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
+              <site name="FL_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
+              <site name="FL_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
+              <site name="FL_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
+              <site name="FL_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <body name="FL_toe_f1" pos="0.039 0.009 -0.022">
+                <joint name="FL_toe_f1_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="FL_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FL_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="FL_toe_f2" pos="0.039 -0.009 -0.022">
+                <joint name="FL_toe_f2_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="FL_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FL_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="FL_toe_b" pos="-0.027 0 -0.022">
+                <joint name="FL_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
+                <site name="FL_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="FL_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ================= FR 다리 ================= -->
+      <body name="FR_hip" pos="0.13 -0.09 -0.02">
+        <joint name="FR_abd" axis="1 0 0" range="-0.5 0.5" class="xm430"/>
+        <geom class="xm430"/>
+        <body name="FR_thigh" pos="0 -0.045 0">
+          <joint name="FR_hip_pitch" axis="0 1 0" range="-1.5 1.5" class="xm430"/>
+          <geom class="xm430"/>
+          <geom name="FR_thigh_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.010" mass="0.040"/>
+          <geom class="xm430" pos="0 0 -0.13"/>
+          <geom class="xl330" pos="-0.014 0 -0.055"/>
+          <site name="FR_spool_b" pos="-0.018 0 -0.060" class="tendonsite"/>
+          <body name="FR_calf" pos="0 0 -0.13">
+            <joint name="FR_knee" axis="0 1 0" range="-2.4 -0.3" class="xm430"/>
+            <geom name="FR_calf_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.008" mass="0.030"/>
+            <geom class="xl330" pos="0.013 0.008 -0.050"/>
+            <geom class="xl330" pos="0.013 -0.008 -0.050"/>
+            <site name="FR_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
+            <site name="FR_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
+            <site name="FR_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <body name="FR_foot" pos="0 0 -0.13">
+              <joint name="FR_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
+              <geom class="xl430"/>
+              <geom name="FR_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
+                    rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
+              <site name="FR_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
+              <site name="FR_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
+              <site name="FR_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
+              <site name="FR_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <body name="FR_toe_f1" pos="0.039 0.009 -0.022">
+                <joint name="FR_toe_f1_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="FR_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FR_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="FR_toe_f2" pos="0.039 -0.009 -0.022">
+                <joint name="FR_toe_f2_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="FR_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="FR_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="FR_toe_b" pos="-0.027 0 -0.022">
+                <joint name="FR_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
+                <site name="FR_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="FR_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ================= RL 다리 ================= -->
+      <body name="RL_hip" pos="-0.13 0.09 -0.02">
+        <joint name="RL_abd" axis="1 0 0" range="-0.5 0.5" class="xm430"/>
+        <geom class="xm430"/>
+        <body name="RL_thigh" pos="0 0.045 0">
+          <joint name="RL_hip_pitch" axis="0 1 0" range="-1.5 1.5" class="xm430"/>
+          <geom class="xm430"/>
+          <geom name="RL_thigh_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.010" mass="0.040"/>
+          <geom class="xm430" pos="0 0 -0.13"/>
+          <geom class="xl330" pos="-0.014 0 -0.055"/>
+          <site name="RL_spool_b" pos="-0.018 0 -0.060" class="tendonsite"/>
+          <body name="RL_calf" pos="0 0 -0.13">
+            <joint name="RL_knee" axis="0 1 0" range="-2.4 -0.3" class="xm430"/>
+            <geom name="RL_calf_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.008" mass="0.030"/>
+            <geom class="xl330" pos="0.013 0.008 -0.050"/>
+            <geom class="xl330" pos="0.013 -0.008 -0.050"/>
+            <site name="RL_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
+            <site name="RL_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
+            <site name="RL_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <body name="RL_foot" pos="0 0 -0.13">
+              <joint name="RL_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
+              <geom class="xl430"/>
+              <geom name="RL_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
+                    rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
+              <site name="RL_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
+              <site name="RL_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
+              <site name="RL_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
+              <site name="RL_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <body name="RL_toe_f1" pos="0.039 0.009 -0.022">
+                <joint name="RL_toe_f1_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="RL_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RL_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="RL_toe_f2" pos="0.039 -0.009 -0.022">
+                <joint name="RL_toe_f2_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="RL_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RL_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="RL_toe_b" pos="-0.027 0 -0.022">
+                <joint name="RL_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
+                <site name="RL_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="RL_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ================= RR 다리 ================= -->
+      <body name="RR_hip" pos="-0.13 -0.09 -0.02">
+        <joint name="RR_abd" axis="1 0 0" range="-0.5 0.5" class="xm430"/>
+        <geom class="xm430"/>
+        <body name="RR_thigh" pos="0 -0.045 0">
+          <joint name="RR_hip_pitch" axis="0 1 0" range="-1.5 1.5" class="xm430"/>
+          <geom class="xm430"/>
+          <geom name="RR_thigh_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.010" mass="0.040"/>
+          <geom class="xm430" pos="0 0 -0.13"/>
+          <geom class="xl330" pos="-0.014 0 -0.055"/>
+          <site name="RR_spool_b" pos="-0.018 0 -0.060" class="tendonsite"/>
+          <body name="RR_calf" pos="0 0 -0.13">
+            <joint name="RR_knee" axis="0 1 0" range="-2.4 -0.3" class="xm430"/>
+            <geom name="RR_calf_link" class="link" fromto="0 0 0 0 0 -0.13" size="0.008" mass="0.030"/>
+            <geom class="xl330" pos="0.013 0.008 -0.050"/>
+            <geom class="xl330" pos="0.013 -0.008 -0.050"/>
+            <site name="RR_spool_f1" pos="0.017 0.008 -0.056" class="tendonsite"/>
+            <site name="RR_spool_f2" pos="0.017 -0.008 -0.056" class="tendonsite"/>
+            <site name="RR_calf_back" pos="-0.011 0 -0.095" class="tendonsite"/>
+            <body name="RR_foot" pos="0 0 -0.13">
+              <joint name="RR_ankle" axis="0 1 0" range="-0.8 1.2" class="xl430"/>
+              <geom class="xl430"/>
+              <geom name="RR_foot_plate" type="box" size="0.032 0.016 0.005" pos="0.008 0 -0.022" mass="0.020"
+                    rgba="0.3 0.3 0.3 1" friction="1.2 0.01 0.001"/>
+              <site name="RR_pulley_f1" pos="0.031 0.008 -0.025" class="tendonsite"/>
+              <site name="RR_pulley_f2" pos="0.031 -0.008 -0.025" class="tendonsite"/>
+              <site name="RR_pulley_b" pos="-0.019 0 -0.025" class="tendonsite"/>
+              <site name="RR_sole_touch" class="touchsite" type="box" pos="0.008 0 -0.028" size="0.030 0.014 0.003"/>
+              <body name="RR_toe_f1" pos="0.039 0.009 -0.022">
+                <joint name="RR_toe_f1_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="RR_toe_f1_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RR_toe_f1_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="RR_toe_f2" pos="0.039 -0.009 -0.022">
+                <joint name="RR_toe_f2_j" class="toe" axis="0 1 0"/>
+                <geom class="toe" fromto="0 0 0 0.040 0 0"/>
+                <site name="RR_toe_f2_insert" pos="0.008 0 -0.007" class="tendonsite"/>
+                <site name="RR_toe_f2_touch" class="touchsite" pos="0.040 0 0" size="0.008"/>
+              </body>
+              <body name="RR_toe_b" pos="-0.027 0 -0.022">
+                <joint name="RR_toe_b_j" class="toe" axis="0 -1 0" range="-0.2 1.0"/>
+                <geom class="toe" fromto="0 0 0 -0.034 0 0" mass="0.007"/>
+                <site name="RR_toe_b_insert" pos="-0.007 0 -0.007" class="tendonsite"/>
+                <site name="RR_toe_b_touch" class="touchsite" pos="-0.034 0 0" size="0.008"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- ================= 텐던 (발가락 굴곡 와이어) ================= -->
+  <!-- 앞발가락: 종아리 스풀 → 발 앞 풀리 → 발가락 하면 삽입점. 당기면(단축) 굴곡, 스프링이 신전 복원.
+       뒷발가락: 허벅지 스풀 → 종아리 후면 → 발 뒤 풀리 → 삽입점 (무릎·발목을 가로지르는 생체형 장텐던). -->
+  <tendon>
+    <spatial name="FL_toe_f1_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="FL_spool_f1"/><site site="FL_pulley_f1"/><site site="FL_toe_f1_insert"/>
+    </spatial>
+    <spatial name="FL_toe_f2_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="FL_spool_f2"/><site site="FL_pulley_f2"/><site site="FL_toe_f2_insert"/>
+    </spatial>
+    <spatial name="FL_toe_b_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="FL_spool_b"/><site site="FL_calf_back"/><site site="FL_pulley_b"/><site site="FL_toe_b_insert"/>
+    </spatial>
+    <spatial name="FR_toe_f1_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="FR_spool_f1"/><site site="FR_pulley_f1"/><site site="FR_toe_f1_insert"/>
+    </spatial>
+    <spatial name="FR_toe_f2_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="FR_spool_f2"/><site site="FR_pulley_f2"/><site site="FR_toe_f2_insert"/>
+    </spatial>
+    <spatial name="FR_toe_b_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="FR_spool_b"/><site site="FR_calf_back"/><site site="FR_pulley_b"/><site site="FR_toe_b_insert"/>
+    </spatial>
+    <spatial name="RL_toe_f1_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="RL_spool_f1"/><site site="RL_pulley_f1"/><site site="RL_toe_f1_insert"/>
+    </spatial>
+    <spatial name="RL_toe_f2_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="RL_spool_f2"/><site site="RL_pulley_f2"/><site site="RL_toe_f2_insert"/>
+    </spatial>
+    <spatial name="RL_toe_b_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="RL_spool_b"/><site site="RL_calf_back"/><site site="RL_pulley_b"/><site site="RL_toe_b_insert"/>
+    </spatial>
+    <spatial name="RR_toe_f1_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="RR_spool_f1"/><site site="RR_pulley_f1"/><site site="RR_toe_f1_insert"/>
+    </spatial>
+    <spatial name="RR_toe_f2_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="RR_spool_f2"/><site site="RR_pulley_f2"/><site site="RR_toe_f2_insert"/>
+    </spatial>
+    <spatial name="RR_toe_b_t" width="0.0012" rgba="0.9 0.4 0.2 0.8">
+      <site site="RR_spool_b"/><site site="RR_calf_back"/><site site="RR_pulley_b"/><site site="RR_toe_b_insert"/>
+    </spatial>
+  </tendon>
+
+  <!-- ================= 액추에이터 ================= -->
+  <actuator>
+    <!-- 목: XL430 위치 서보 -->
+    <position name="neck_yaw_act" joint="neck_yaw" class="xl430" ctrlrange="-1.2 1.2"/>
+    <position name="neck_pitch_act" joint="neck_pitch" class="xl430" ctrlrange="-0.9 0.6"/>
+    <!-- 다리: XM430(힙외전/힙피치/무릎) + XL430(발목) 위치 서보 -->
+    <position name="FL_abd_act" joint="FL_abd" class="xm430" ctrlrange="-0.5 0.5"/>
+    <position name="FL_hip_act" joint="FL_hip_pitch" class="xm430" ctrlrange="-1.5 1.5"/>
+    <position name="FL_knee_act" joint="FL_knee" class="xm430" ctrlrange="-2.4 -0.3"/>
+    <position name="FL_ankle_act" joint="FL_ankle" class="xl430" ctrlrange="-0.8 1.2"/>
+    <position name="FR_abd_act" joint="FR_abd" class="xm430" ctrlrange="-0.5 0.5"/>
+    <position name="FR_hip_act" joint="FR_hip_pitch" class="xm430" ctrlrange="-1.5 1.5"/>
+    <position name="FR_knee_act" joint="FR_knee" class="xm430" ctrlrange="-2.4 -0.3"/>
+    <position name="FR_ankle_act" joint="FR_ankle" class="xl430" ctrlrange="-0.8 1.2"/>
+    <position name="RL_abd_act" joint="RL_abd" class="xm430" ctrlrange="-0.5 0.5"/>
+    <position name="RL_hip_act" joint="RL_hip_pitch" class="xm430" ctrlrange="-1.5 1.5"/>
+    <position name="RL_knee_act" joint="RL_knee" class="xm430" ctrlrange="-2.4 -0.3"/>
+    <position name="RL_ankle_act" joint="RL_ankle" class="xl430" ctrlrange="-0.8 1.2"/>
+    <position name="RR_abd_act" joint="RR_abd" class="xm430" ctrlrange="-0.5 0.5"/>
+    <position name="RR_hip_act" joint="RR_hip_pitch" class="xm430" ctrlrange="-1.5 1.5"/>
+    <position name="RR_knee_act" joint="RR_knee" class="xm430" ctrlrange="-2.4 -0.3"/>
+    <position name="RR_ankle_act" joint="RR_ankle" class="xl430" ctrlrange="-0.8 1.2"/>
+    <!-- 발가락 텐던: XL330 스풀. 당김(장력) 전용, ctrl = 장력[N] 0~15 -->
+    <motor name="FL_toe_f1_act" tendon="FL_toe_f1_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="FL_toe_f2_act" tendon="FL_toe_f2_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="FL_toe_b_act" tendon="FL_toe_b_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="FR_toe_f1_act" tendon="FR_toe_f1_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="FR_toe_f2_act" tendon="FR_toe_f2_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="FR_toe_b_act" tendon="FR_toe_b_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="RL_toe_f1_act" tendon="RL_toe_f1_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="RL_toe_f2_act" tendon="RL_toe_f2_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="RL_toe_b_act" tendon="RL_toe_b_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="RR_toe_f1_act" tendon="RR_toe_f1_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="RR_toe_f2_act" tendon="RR_toe_f2_t" gear="-1" ctrlrange="0 15"/>
+    <motor name="RR_toe_b_act" tendon="RR_toe_b_t" gear="-1" ctrlrange="0 15"/>
+  </actuator>
+
+  <!-- ================= 센서 ================= -->
+  <sensor>
+    <!-- 관절 회전각/각속도: 전 관절 30개 -->
+    <jointpos name="neck_yaw_pos" joint="neck_yaw"/>
+    <jointpos name="neck_pitch_pos" joint="neck_pitch"/>
+    <jointvel name="neck_yaw_vel" joint="neck_yaw"/>
+    <jointvel name="neck_pitch_vel" joint="neck_pitch"/>
+
+    <jointpos name="FL_abd_pos" joint="FL_abd"/>
+    <jointpos name="FL_hip_pos" joint="FL_hip_pitch"/>
+    <jointpos name="FL_knee_pos" joint="FL_knee"/>
+    <jointpos name="FL_ankle_pos" joint="FL_ankle"/>
+    <jointpos name="FL_toe_f1_pos" joint="FL_toe_f1_j"/>
+    <jointpos name="FL_toe_f2_pos" joint="FL_toe_f2_j"/>
+    <jointpos name="FL_toe_b_pos" joint="FL_toe_b_j"/>
+    <jointvel name="FL_abd_vel" joint="FL_abd"/>
+    <jointvel name="FL_hip_vel" joint="FL_hip_pitch"/>
+    <jointvel name="FL_knee_vel" joint="FL_knee"/>
+    <jointvel name="FL_ankle_vel" joint="FL_ankle"/>
+    <jointvel name="FL_toe_f1_vel" joint="FL_toe_f1_j"/>
+    <jointvel name="FL_toe_f2_vel" joint="FL_toe_f2_j"/>
+    <jointvel name="FL_toe_b_vel" joint="FL_toe_b_j"/>
+
+    <jointpos name="FR_abd_pos" joint="FR_abd"/>
+    <jointpos name="FR_hip_pos" joint="FR_hip_pitch"/>
+    <jointpos name="FR_knee_pos" joint="FR_knee"/>
+    <jointpos name="FR_ankle_pos" joint="FR_ankle"/>
+    <jointpos name="FR_toe_f1_pos" joint="FR_toe_f1_j"/>
+    <jointpos name="FR_toe_f2_pos" joint="FR_toe_f2_j"/>
+    <jointpos name="FR_toe_b_pos" joint="FR_toe_b_j"/>
+    <jointvel name="FR_abd_vel" joint="FR_abd"/>
+    <jointvel name="FR_hip_vel" joint="FR_hip_pitch"/>
+    <jointvel name="FR_knee_vel" joint="FR_knee"/>
+    <jointvel name="FR_ankle_vel" joint="FR_ankle"/>
+    <jointvel name="FR_toe_f1_vel" joint="FR_toe_f1_j"/>
+    <jointvel name="FR_toe_f2_vel" joint="FR_toe_f2_j"/>
+    <jointvel name="FR_toe_b_vel" joint="FR_toe_b_j"/>
+
+    <jointpos name="RL_abd_pos" joint="RL_abd"/>
+    <jointpos name="RL_hip_pos" joint="RL_hip_pitch"/>
+    <jointpos name="RL_knee_pos" joint="RL_knee"/>
+    <jointpos name="RL_ankle_pos" joint="RL_ankle"/>
+    <jointpos name="RL_toe_f1_pos" joint="RL_toe_f1_j"/>
+    <jointpos name="RL_toe_f2_pos" joint="RL_toe_f2_j"/>
+    <jointpos name="RL_toe_b_pos" joint="RL_toe_b_j"/>
+    <jointvel name="RL_abd_vel" joint="RL_abd"/>
+    <jointvel name="RL_hip_vel" joint="RL_hip_pitch"/>
+    <jointvel name="RL_knee_vel" joint="RL_knee"/>
+    <jointvel name="RL_ankle_vel" joint="RL_ankle"/>
+    <jointvel name="RL_toe_f1_vel" joint="RL_toe_f1_j"/>
+    <jointvel name="RL_toe_f2_vel" joint="RL_toe_f2_j"/>
+    <jointvel name="RL_toe_b_vel" joint="RL_toe_b_j"/>
+
+    <jointpos name="RR_abd_pos" joint="RR_abd"/>
+    <jointpos name="RR_hip_pos" joint="RR_hip_pitch"/>
+    <jointpos name="RR_knee_pos" joint="RR_knee"/>
+    <jointpos name="RR_ankle_pos" joint="RR_ankle"/>
+    <jointpos name="RR_toe_f1_pos" joint="RR_toe_f1_j"/>
+    <jointpos name="RR_toe_f2_pos" joint="RR_toe_f2_j"/>
+    <jointpos name="RR_toe_b_pos" joint="RR_toe_b_j"/>
+    <jointvel name="RR_abd_vel" joint="RR_abd"/>
+    <jointvel name="RR_hip_vel" joint="RR_hip_pitch"/>
+    <jointvel name="RR_knee_vel" joint="RR_knee"/>
+    <jointvel name="RR_ankle_vel" joint="RR_ankle"/>
+    <jointvel name="RR_toe_f1_vel" joint="RR_toe_f1_j"/>
+    <jointvel name="RR_toe_f2_vel" joint="RR_toe_f2_j"/>
+    <jointvel name="RR_toe_b_vel" joint="RR_toe_b_j"/>
+
+    <!-- IMU 9축 + 속도계 (BNO085급, 몸통 중심) -->
+    <framequat name="imu_orient" objtype="site" objname="imu_site"/>
+    <gyro name="imu_gyro" site="imu_site"/>
+    <accelerometer name="imu_acc" site="imu_site"/>
+    <magnetometer name="imu_mag" site="imu_site"/>
+    <velocimeter name="imu_vel" site="imu_site"/>
+
+    <!-- rangefinder: 전방 + 절벽감지 좌/우 (머리에 장착, 목과 함께 회전) -->
+    <rangefinder name="rf_forward" site="rf_fwd"/>
+    <rangefinder name="rf_cliff_left" site="rf_cliff_l"/>
+    <rangefinder name="rf_cliff_right" site="rf_cliff_r"/>
+
+    <!-- 접촉 센서 27개: 머리5 + 몸통6 + 발바닥4 + 발가락끝12 -->
+    <touch name="head_nose_t" site="head_nose_touch"/>
+    <touch name="head_top_t" site="head_top_touch"/>
+    <touch name="head_chin_t" site="head_chin_touch"/>
+    <touch name="head_cheek_l_t" site="head_cheek_l_touch"/>
+    <touch name="head_cheek_r_t" site="head_cheek_r_touch"/>
+    <touch name="belly_t" site="belly_touch"/>
+    <touch name="back_t" site="back_touch"/>
+    <touch name="flank_l_t" site="flank_l_touch"/>
+    <touch name="flank_r_t" site="flank_r_touch"/>
+    <touch name="bumper_f_t" site="bumper_f_touch"/>
+    <touch name="bumper_b_t" site="bumper_b_touch"/>
+    <touch name="FL_sole_t" site="FL_sole_touch"/>
+    <touch name="FL_toe_f1_t" site="FL_toe_f1_touch"/>
+    <touch name="FL_toe_f2_t" site="FL_toe_f2_touch"/>
+    <touch name="FL_toe_b_t" site="FL_toe_b_touch"/>
+    <touch name="FR_sole_t" site="FR_sole_touch"/>
+    <touch name="FR_toe_f1_t" site="FR_toe_f1_touch"/>
+    <touch name="FR_toe_f2_t" site="FR_toe_f2_touch"/>
+    <touch name="FR_toe_b_t" site="FR_toe_b_touch"/>
+    <touch name="RL_sole_t" site="RL_sole_touch"/>
+    <touch name="RL_toe_f1_t" site="RL_toe_f1_touch"/>
+    <touch name="RL_toe_f2_t" site="RL_toe_f2_touch"/>
+    <touch name="RL_toe_b_t" site="RL_toe_b_touch"/>
+    <touch name="RR_sole_t" site="RR_sole_touch"/>
+    <touch name="RR_toe_f1_t" site="RR_toe_f1_touch"/>
+    <touch name="RR_toe_f2_t" site="RR_toe_f2_touch"/>
+    <touch name="RR_toe_b_t" site="RR_toe_b_touch"/>
+
+    <!-- 서보 부하(전류 감지 모사): 다리 16 + 목 2 -->
+    <actuatorfrc name="neck_yaw_frc" actuator="neck_yaw_act"/>
+    <actuatorfrc name="neck_pitch_frc" actuator="neck_pitch_act"/>
+    <actuatorfrc name="FL_abd_frc" actuator="FL_abd_act"/>
+    <actuatorfrc name="FL_hip_frc" actuator="FL_hip_act"/>
+    <actuatorfrc name="FL_knee_frc" actuator="FL_knee_act"/>
+    <actuatorfrc name="FL_ankle_frc" actuator="FL_ankle_act"/>
+    <actuatorfrc name="FR_abd_frc" actuator="FR_abd_act"/>
+    <actuatorfrc name="FR_hip_frc" actuator="FR_hip_act"/>
+    <actuatorfrc name="FR_knee_frc" actuator="FR_knee_act"/>
+    <actuatorfrc name="FR_ankle_frc" actuator="FR_ankle_act"/>
+    <actuatorfrc name="RL_abd_frc" actuator="RL_abd_act"/>
+    <actuatorfrc name="RL_hip_frc" actuator="RL_hip_act"/>
+    <actuatorfrc name="RL_knee_frc" actuator="RL_knee_act"/>
+    <actuatorfrc name="RL_ankle_frc" actuator="RL_ankle_act"/>
+    <actuatorfrc name="RR_abd_frc" actuator="RR_abd_act"/>
+    <actuatorfrc name="RR_hip_frc" actuator="RR_hip_act"/>
+    <actuatorfrc name="RR_knee_frc" actuator="RR_knee_act"/>
+    <actuatorfrc name="RR_ankle_frc" actuator="RR_ankle_act"/>
+    <!-- 발가락 텐던 장력 감지 12 -->
+    <actuatorfrc name="FL_toe_f1_frc" actuator="FL_toe_f1_act"/>
+    <actuatorfrc name="FL_toe_f2_frc" actuator="FL_toe_f2_act"/>
+    <actuatorfrc name="FL_toe_b_frc" actuator="FL_toe_b_act"/>
+    <actuatorfrc name="FR_toe_f1_frc" actuator="FR_toe_f1_act"/>
+    <actuatorfrc name="FR_toe_f2_frc" actuator="FR_toe_f2_act"/>
+    <actuatorfrc name="FR_toe_b_frc" actuator="FR_toe_b_act"/>
+    <actuatorfrc name="RL_toe_f1_frc" actuator="RL_toe_f1_act"/>
+    <actuatorfrc name="RL_toe_f2_frc" actuator="RL_toe_f2_act"/>
+    <actuatorfrc name="RL_toe_b_frc" actuator="RL_toe_b_act"/>
+    <actuatorfrc name="RR_toe_f1_frc" actuator="RR_toe_f1_act"/>
+    <actuatorfrc name="RR_toe_f2_frc" actuator="RR_toe_f2_act"/>
+    <actuatorfrc name="RR_toe_b_frc" actuator="RR_toe_b_act"/>
+  </sensor>
+
+  <keyframe>
+    <!-- 서 있는 기본 자세: 힙피치 0.8, 무릎 -1.5, 발목 0.7 (발바닥 수평) -->
+    <key name="home"
+         qpos="0 0 0.24  1 0 0 0
+               0 0
+               0 0.8 -1.5 0.7 0 0 0
+               0 0.8 -1.5 0.7 0 0 0
+               0 0.8 -1.5 0.7 0 0 0
+               0 0.8 -1.5 0.7 0 0 0"
+         ctrl="0 0
+               0 0.8 -1.5 0.7
+               0 0.8 -1.5 0.7
+               0 0.8 -1.5 0.7
+               0 0.8 -1.5 0.7
+               0 0 0 0 0 0 0 0 0 0 0 0"/>
+  </keyframe>
+</mujoco>

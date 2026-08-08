@@ -90,5 +90,14 @@ models/, runs/             ← 조합명(<robot>__<world>__<task>) 하위 폴더
 
 ## 참고: 지금까지 만든 로봇
 
-- `robots/don1/`: 박스 몸체 + 무릎 없는 막대 다리 4개. 관절각/각속도, IMU, 터치 센서(발끝4+배+등) 장착. 전진보행 PPO 학습 완료 (`models/don1_ppo_final.zip`).
+- `robots/don2/`: **정서-욕구 아키텍처용 메인 로봇** (3.33kg, 소형견 크기). 실존 부품 기반:
+  Dynamixel XM430(힙/무릎 12)+XL430(발목/목 6)+XL330(발가락 텐던 스풀 12, 허벅지·종아리 장착),
+  3S LiPo 5000mAh(370g)+RPi4(100g)를 실제 질량 geom으로 내장. 2축 목+머리(감각 집중),
+  다리 4×(외전+힙+무릎+발목), 발가락 앞2+뒤1(텐던 굴곡+스프링 신전, 당김=굴곡 검증됨).
+  센서 125개: 전관절 회전각/각속도, IMU 9축+속도계, rangefinder 3(전방+절벽2, 머리 장착),
+  접촉 27(머리5+몸통6+발16), 서보 전류 30. 가상센서 마운트: 콧구멍2/광/바닥색 site.
+  전력모델·부품 스펙: `robot_config.py`. 검증: `validate.py`(헤드리스), `pose_test.py`(뷰어).
+  home keyframe으로 기립 안정 확인됨. 대기전력 13.2W → 배터리로 약 4.2시간.
+- `robots/don1/`: 프로토타입 1호 (박스 몸체 + 무릎 없는 막대 다리 4개). 전진보행 PPO 학습 완료
+  (`models/don1_ppo_final.zip`). 레거시 파이프라인(don1_env.py 등)의 검증용으로 유지.
 - Unitree Go2 (`robot_descriptions.go2_mj_description`, MuJoCo Menagerie): 참고용 실제 로봇 모델. `run_go2.py`에서 사인파+PD로 다리 제어.
