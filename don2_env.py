@@ -25,7 +25,7 @@ TOE_ACT_NAMES = [f"{leg}_toe_{t}_act" for leg in LEGS for t in ["f1", "f2", "b"]
 TOE_JOINT_NAMES = [f"{leg}_toe_{t}_j" for leg in LEGS for t in ["f1", "f2", "b"]]
 # home 기준 행동 오프셋 스케일 [rad] (abd, hip, knee, ankle)
 ACTION_SCALE = np.tile(np.array([0.3, 0.6, 0.6, 0.5]), 4)
-LOCOMOTION_MODES = ("sprint", "walk", "turn_left")
+LOCOMOTION_MODES = ("stand", "sprint", "walk", "turn_left", "turn_right")
 # 180도 뒤집힌(등을 바닥에 댄) 자세의 쿼터니언 (x축 기준 roll 180도: w,x,y,z)
 SUPINE_QUAT = np.array([0.0, 1.0, 0.0, 0.0])
 
@@ -44,8 +44,10 @@ class Don2Env(gym.Env):
     def __init__(self, frame_skip: int = 5, max_episode_steps: int = 500,
                  mode: str = "sprint", target_speed: float = 0.35,
                  target_yaw_rate: float = 0.6, toe_curl_freq: float = 0.4, energy: bool = True):
-        """mode: "sprint"(속도 최대화) / "walk"(target_speed 추종) /
-                 "turn_left"(target_yaw_rate 추종, gyro z+ = 좌회전, 물리적으로 검증됨) /
+        """mode: "stand"(기립 정지 균형 — 발달 계보의 뿌리 스킬) /
+                 "sprint"(속도 최대화) / "walk"(target_speed 추종) /
+                 "turn_left"/"turn_right"(target_yaw_rate 추종, gyro z+ = 좌회전, 물리 검증됨.
+                 turn_right는 target_yaw_rate에 음수를 넣는다) /
                  "toe_curl"(등을 대고 누운 채 발가락 12개를 주기적으로 오므렸다 폈다;
                  다리/허리/목은 home 고정, 행동공간이 12차원으로 달라짐).
         energy: 에너지 내수용감각+고통 활성화 (관측 +3, 보상에 에너지 항 추가).
@@ -156,7 +158,13 @@ class Don2Env(gym.Env):
         z = float(self.data.qpos[2])
         tilt_penalty = 0.5 * max(0.0, 0.7 - upright)
 
-        if self.mode == "sprint":
+        if self.mode == "stand":  # 제자리 기립: 이동/회전/동작을 모두 억제 (계보의 뿌리)
+            gyro = self.data.sensordata[self._gyro_adr:self._gyro_adr + 3]
+            still = 1.0 - np.tanh(4.0 * abs(forward_vel) + 1.5 * float(np.linalg.norm(gyro)))
+            ctrl_cost = 0.03 * float(np.sum(np.square(action)))
+            jerk_cost = 0.03 * float(np.sum(np.square(action - self._prev_action)))
+            reward = 1.2 * still - ctrl_cost - jerk_cost - tilt_penalty + 0.5
+        elif self.mode == "sprint":
             ctrl_cost = 0.01 * float(np.sum(np.square(action)))
             reward = 2.0 * forward_vel - ctrl_cost - tilt_penalty + 0.5
         elif self.mode == "walk":  # 목표 속도 추종 + 동작 크기·급격함 페널티 강화(저속·저에너지 보행)
@@ -164,7 +172,7 @@ class Don2Env(gym.Env):
             ctrl_cost = 0.03 * float(np.sum(np.square(action)))
             jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
             reward = 1.5 * (1.0 - np.tanh(2.0 * speed_error)) - ctrl_cost - jerk_cost - tilt_penalty + 0.5
-        elif self.mode == "turn_left":  # 목표 회전율 추종(gyro z) + 전진 유지 보너스(제자리 회전만 방지)
+        elif self.mode in ("turn_left", "turn_right"):  # 목표 회전율 추종(gyro z, 우회전은 음수 목표)
             yaw_rate = float(self.data.sensordata[self._gyro_adr + 2])
             yaw_error = abs(yaw_rate - self.target_yaw_rate)
             ctrl_cost = 0.02 * float(np.sum(np.square(action)))

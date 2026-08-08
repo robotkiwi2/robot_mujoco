@@ -13,7 +13,10 @@
 | `interoception.py` | 내부상태(에너지/손상/독성/피로) + setpoint + 편차 계산 (DESIGN.md 고통의 입력) | **v0 구현** (에너지: 실부품 전력모델→SoC) |
 | `affect.py` | pain 가중합(호르몬 변조), 전위 기반 쾌/불쾌 보상, 습관화 | **v0 구현** (에너지 고통: 소비=직접비용, 저SoC=전위차분) |
 | `hormones.py` | 호르몬 동역학(분비/감쇠/포화) + 개체 프로필(성격) + 변조 인터페이스 | 미구현 |
-| `skill_manager.py` | 스킬 레지스트리 + 매니저(규칙 기반 → RL 교체 가능) — 욕구→행동 선택 | 미구현 |
+| `skill_registry.py` | 소뇌 레퍼토리: 스킬 목록+발달 계보(parent) 단일 출처 | **v0 구현** |
+| `residual.py` | 대뇌 개입 채널: 동결 스킬 + 잔차 보정, 주의 비용 | **v0 구현** |
+| `skill_manager.py` | 매니저(규칙 기반 → RL 교체 가능) — 욕구→스킬 선택 | 미구현 |
+| `cortex_mpc.py` | 대뇌 직접제어: MPPI 모델 기반 계획(미훈련 상황 대응) + 증류 파이프라인 | 미구현 |
 | `actuator_catalog.py` | 실제 상용 모터 스펙(무게/크기/토크/효율) 카탈로그 — CLAUDE.md "추상 부품 금지" 원칙의 데이터 기반 | 미구현 |
 | `mjcf_builder.py` | "박스 몸체 + 다리 N개" 같은 로봇 패턴을 파라미터로 생성 | 미구현 |
 | `train_common.py` | PPO + VecNormalize + Checkpoint 공통 학습 루틴 (조합명으로 저장 경로 결정) | 미구현 |

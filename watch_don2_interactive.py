@@ -27,16 +27,11 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from don2_env import Don2Env
 from watch_don2 import find_latest
 
-SKILLS = {
-    "sprint": dict(dir="models/don2__flat__forward", obs_dim=150,
-                   env_kwargs=dict(mode="sprint", energy=False)),
-    "walk": dict(dir="models/don2__flat__walk", obs_dim=153,
-                 env_kwargs=dict(mode="walk", target_speed=0.35, energy=True)),
-    "turn_left": dict(dir="models/don2__flat__turn_left", obs_dim=153,
-                       env_kwargs=dict(mode="turn_left", target_yaw_rate=0.6, energy=True)),
-    "toe_curl": dict(dir="models/don2__flat__toe_curl", obs_dim=153,
-                      env_kwargs=dict(mode="toe_curl", toe_curl_freq=0.4, energy=True)),
-}
+# 스킬 목록의 단일 출처는 framework/skill_registry.py (소뇌 레퍼토리)
+from framework.skill_registry import SKILLS as _REGISTRY
+
+SKILLS = {name: dict(dir=f"models/{c['combo']}", obs_dim=c["obs_dim"], env_kwargs=c["env_kwargs"])
+          for name, c in _REGISTRY.items()}
 SKILL_NAMES = list(SKILLS)  # 목록 순서 = 커서 이동 순서
 
 current_idx = 0  # 커서 위치 (SKILL_NAMES의 인덱스) — 이게 곧 "현재 스킬"의 유일한 출처
@@ -139,7 +134,7 @@ def main():
             stats = f"vx={info['forward_vel']:+.2f} m/s  upright={info['upright']:.2f}"
             if "power_W" in info:
                 stats += f"\nP={info['power_W']:.0f}W  soc={info['soc']:.2f}  pain={info['pain']:.2f}"
-            if skill == "turn_left":
+            if skill in ("turn_left", "turn_right"):
                 stats += f"\nyaw={info['yaw_rate']:+.2f} rad/s"
             viewer.set_texts([
                 (mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtGridPos.mjGRID_TOPLEFT, "skills", menu),
@@ -189,7 +184,7 @@ def main():
                 last_print = time.time()
                 refresh_overlay(info)
                 extra = f" P={info['power_W']:.0f}W soc={info['soc']:.2f}" if "power_W" in info else ""
-                extra += f" yaw={info['yaw_rate']:+.2f}rad/s" if skill == "turn_left" else ""
+                extra += f" yaw={info['yaw_rate']:+.2f}rad/s" if skill in ("turn_left", "turn_right") else ""
                 print(f"[{skill}] vx={info['forward_vel']:+.2f} m/s "
                       f"upright={info['upright']:.2f}{extra}", flush=True)
 
