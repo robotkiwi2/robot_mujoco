@@ -1,22 +1,20 @@
 """
-don2 스킬 인터랙티브 전환 뷰어 — 키보드로 학습된 행동을 직접 지시한다.
+don2 스킬 인터랙티브 전환 뷰어 — 학습된 행동을 직접 지시한다.
 DESIGN.md의 skill_manager 개념을 사람이 수동으로 대신하는 임시 버전
 (나중엔 매니저가 욕구에 따라 자동으로 이 전환을 하게 됨).
 
-조작 (MuJoCo 뷰어 내장 단축키와 충돌하지 않는 키만 사용 — 아래 참고):
-  6 : sprint 스킬 (최대속도)
-  7 : walk 스킬 (목표속도 0.35m/s + 에너지 절약)
-  8 : turn_left 스킬 (좌회전 0.6 rad/s + 전진 유지)
-  9 : 세 스킬 전부 최신 체크포인트로 즉시 갱신(핫 리로드, 창 유지)
-  R : 자세 리셋(home)
-
-주의: MuJoCo 뷰어는 커스텀 key_callback을 등록해도 내장 단축키가 함께 발동한다.
-숫자 0~5는 geom 그룹(mjNGROUP=6) 표시 토글로 예약되어 있어 피했다(6~9는 미사용 확인).
-알파벳은 다수가 시각화 플래그에 물려있어(L=Convex Hull 등) 사용하지 않는다.
+선택 방식 두 가지 (스킬이 늘어나도 확장 가능하도록 터미널 입력을 기본으로 함):
+  1) 터미널에 스킬 이름을 입력 + Enter  (예: walk, turn_left, toe_curl)
+     기타 명령: list(목록), reload(전체 최신 갱신), reset(자세 리셋), quit(종료)
+  2) 뷰어 창에서 숫자 키 6/7/8/9 — 처음 4개 스킬용 빠른 단축키(스킬이 늘면 터미널 입력 사용)
+     * MuJoCo 뷰어는 커스텀 key_callback을 등록해도 내장 단축키가 함께 발동한다.
+       0~5는 geom 그룹(mjNGROUP=6) 토글, 다수 알파벳은 시각화 플래그(L=Convex Hull 등)에
+       물려있어 충돌 없는 6~9와 R(리셋)만 사용한다.
 현재 스킬/조작법은 뷰어 화면에도 오버레이 텍스트로 표시된다.
 
 사용법: python watch_don2_interactive.py
 """
+import threading
 import time
 
 import mujoco
@@ -35,30 +33,53 @@ SKILLS = {
                  env_kwargs=dict(mode="walk", target_speed=0.35, energy=True)),
     "turn_left": dict(dir="models/don2__flat__turn_left", obs_dim=153,
                        env_kwargs=dict(mode="turn_left", target_yaw_rate=0.6, energy=True)),
+    "toe_curl": dict(dir="models/don2__flat__toe_curl", obs_dim=153,
+                      env_kwargs=dict(mode="toe_curl", toe_curl_freq=0.4, energy=True)),
 }
+NUMKEY_SKILLS = list(SKILLS)[:4]  # 6,7,8,9에 순서대로 매핑 (빠른 단축키용, 그 이상은 터미널 입력)
 
-current_skill = "sprint"   # 시작 스킬
+current_skill = "sprint"
 reset_requested = False
 reload_requested = False
+quit_requested = False
 
 
 def key_callback(keycode):
     global current_skill, reset_requested, reload_requested
     ch = chr(keycode) if 0 < keycode < 256 else ""
-    if ch == "6":
-        current_skill = "sprint"
-        print(">> 스킬 전환: sprint")
-    elif ch == "7":
-        current_skill = "walk"
-        print(">> 스킬 전환: walk")
-    elif ch == "8":
-        current_skill = "turn_left"
-        print(">> 스킬 전환: turn_left")
-    elif ch == "9":
-        reload_requested = True
+    if ch in "6789":
+        idx = int(ch) - 6
+        if idx < len(NUMKEY_SKILLS):
+            current_skill = NUMKEY_SKILLS[idx]
+            print(f">> 스킬 전환: {current_skill}")
     elif ch.upper() == "R":
         reset_requested = True
         print(">> 자세 리셋")
+
+
+def stdin_loop():
+    """터미널 입력으로 스킬 전환 — 몇 개가 되든 이름만 입력하면 된다."""
+    global current_skill, reset_requested, reload_requested, quit_requested
+    print(f"\n[터미널 입력] 스킬 이름을 입력하세요: {', '.join(SKILLS)}")
+    print("             기타 명령: list / reload / reset / quit\n")
+    while not quit_requested:
+        try:
+            cmd = input().strip().lower()
+        except EOFError:
+            break
+        if cmd in SKILLS:
+            current_skill = cmd
+            print(f">> 스킬 전환: {cmd}")
+        elif cmd == "list":
+            print("사용 가능한 스킬:", ", ".join(SKILLS), f"(현재: {current_skill})")
+        elif cmd == "reload":
+            reload_requested = True
+        elif cmd == "reset":
+            reset_requested = True
+        elif cmd in ("quit", "q", "exit"):
+            quit_requested = True
+        elif cmd:
+            print(f"?? 알 수 없는 명령: '{cmd}' (list로 스킬 목록 확인)")
 
 
 def load_skill(name, cfg):
@@ -78,7 +99,9 @@ def main():
         policies[name], normalizers[name], model_path = load_skill(name, cfg)
         print(f"[{name}] 로드: {model_path}")
 
-    # 물리 시뮬레이션은 walk(에너지 포함, 153차원)를 마스터로 사용 — sprint는 앞 150차원만 사용
+    threading.Thread(target=stdin_loop, daemon=True).start()
+
+    # 물리 시뮬레이션은 에너지 포함(153차원)을 마스터로 사용 — energy=False 스킬은 앞부분만 사용
     env = Don2Env(mode="walk", energy=True)
     obs, _ = env.reset(seed=0)
 
@@ -90,14 +113,14 @@ def main():
         viewer.cam.elevation = -15
 
         last_print = 0.0
-        print("\n조작: [6] sprint  [7] walk  [8] turn_left  [9] 최신으로 갱신  [R] 리셋\n")
 
         def refresh_overlay(info):
-            marks = {name: (">" if name == current_skill else " ") for name in SKILLS}
-            menu = (f"{marks['sprint']}[6] sprint\n"
-                    f"{marks['walk']}[7] walk\n"
-                    f"{marks['turn_left']}[8] turn_left\n"
-                    f" [9] reload latest   [R] reset")
+            lines = []
+            for i, name in enumerate(SKILLS):
+                mark = ">" if name == current_skill else " "
+                key_hint = f"[{6+i}]" if i < 4 else "    "
+                lines.append(f"{mark}{key_hint} {name}")
+            menu = "\n".join(lines) + "\n(터미널에 이름 입력도 가능)"
             stats = f"vx={info['forward_vel']:+.2f} m/s  upright={info['upright']:.2f}"
             if "power_W" in info:
                 stats += f"\nP={info['power_W']:.0f}W  soc={info['soc']:.2f}  pain={info['pain']:.2f}"
@@ -108,7 +131,7 @@ def main():
                 (mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtGridPos.mjGRID_BOTTOMLEFT, "status", stats),
             ])
 
-        while viewer.is_running():
+        while viewer.is_running() and not quit_requested:
             t0 = time.time()
 
             if reload_requested:

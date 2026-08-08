@@ -21,8 +21,13 @@ ROBOT_XML = "robots/don2/don2.xml"  # 프로젝트 루트 기준 상대경로 (�
 
 LEGS = ["FL", "FR", "RL", "RR"]
 LEG_ACT_NAMES = [f"{leg}_{part}_act" for leg in LEGS for part in ["abd", "hip", "knee", "ankle"]]
+TOE_ACT_NAMES = [f"{leg}_toe_{t}_act" for leg in LEGS for t in ["f1", "f2", "b"]]
+TOE_JOINT_NAMES = [f"{leg}_toe_{t}_j" for leg in LEGS for t in ["f1", "f2", "b"]]
 # home 기준 행동 오프셋 스케일 [rad] (abd, hip, knee, ankle)
 ACTION_SCALE = np.tile(np.array([0.3, 0.6, 0.6, 0.5]), 4)
+LOCOMOTION_MODES = ("sprint", "walk", "turn_left")
+# 180도 뒤집힌(등을 바닥에 댄) 자세의 쿼터니언 (x축 기준 roll 180도: w,x,y,z)
+SUPINE_QUAT = np.array([0.0, 1.0, 0.0, 0.0])
 
 
 def load_model_with_floor():
@@ -38,16 +43,19 @@ class Don2Env(gym.Env):
 
     def __init__(self, frame_skip: int = 5, max_episode_steps: int = 500,
                  mode: str = "sprint", target_speed: float = 0.35,
-                 target_yaw_rate: float = 0.6, energy: bool = True):
+                 target_yaw_rate: float = 0.6, toe_curl_freq: float = 0.4, energy: bool = True):
         """mode: "sprint"(속도 최대화) / "walk"(target_speed 추종) /
-                 "turn_left"(target_yaw_rate 추종, gyro z+ = 좌회전, 물리적으로 검증됨).
+                 "turn_left"(target_yaw_rate 추종, gyro z+ = 좌회전, 물리적으로 검증됨) /
+                 "toe_curl"(등을 대고 누운 채 발가락 12개를 주기적으로 오므렸다 폈다;
+                 다리/허리/목은 home 고정, 행동공간이 12차원으로 달라짐).
         energy: 에너지 내수용감각+고통 활성화 (관측 +3, 보상에 에너지 항 추가).
                 False는 에너지 도입 전 체크포인트(don2__flat__forward 초기) 재생용."""
         super().__init__()
-        assert mode in ("sprint", "walk", "turn_left")
+        assert mode in LOCOMOTION_MODES + ("toe_curl",)
         self.mode = mode
         self.target_speed = target_speed
         self.target_yaw_rate = target_yaw_rate
+        self.toe_curl_freq = toe_curl_freq
         self.energy = energy
         self.model = load_model_with_floor()
         self.data = mujoco.MjData(self.model)
@@ -65,6 +73,14 @@ class Don2Env(gym.Env):
         gyro_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_gyro")
         self._gyro_adr = self.model.sensor_adr[gyro_id]
 
+        self.toe_act_ids = np.array(
+            [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, n) for n in TOE_ACT_NAMES]
+        )
+        self.toe_hi = self.model.actuator_ctrlrange[self.toe_act_ids, 1]  # lo는 전부 0(당김 전용)
+        toe_joint_ids = [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, n) for n in TOE_JOINT_NAMES]
+        self.toe_qpos_adr = self.model.jnt_qposadr[toe_joint_ids]
+        self.toe_range_hi = self.model.jnt_range[toe_joint_ids, 1]
+
         if self.energy:
             self.energy_state = EnergyState(
                 self.model, rc.ACTUATOR_MODEL, rc.ACTUATOR_SPECS,
@@ -75,11 +91,12 @@ class Don2Env(gym.Env):
 
         n_obs = self.model.nsensordata + 1 + (3 if self.energy else 0)
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(n_obs,), dtype=np.float32)
-        self.action_space = spaces.Box(-1.0, 1.0, shape=(len(LEG_ACT_NAMES),), dtype=np.float32)
+        n_act = len(TOE_ACT_NAMES) if mode == "toe_curl" else len(LEG_ACT_NAMES)
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(n_act,), dtype=np.float32)
 
         self._steps = 0
         self._prev_x = 0.0
-        self._prev_action = np.zeros(len(LEG_ACT_NAMES), dtype=np.float32)
+        self._prev_action = np.zeros(n_act, dtype=np.float32)
 
     def _get_obs(self):
         base = [self.data.sensordata, [self.data.qpos[2]]]
@@ -92,13 +109,21 @@ class Don2Env(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
-        # 다리 관절 초기각에 소량 노이즈 (freejoint 7 + 허리3 + 목2 이후가 다리)
-        self.data.qpos[12:] += self.np_random.uniform(-0.04, 0.04, size=self.model.nq - 12)
         self.data.ctrl[:] = self.home_ctrl
+
+        if self.mode == "toe_curl":
+            # 등을 바닥에 대고 눕는 자세: freejoint 쿼터니언을 180도(roll) 뒤집는다.
+            # 다리/허리/목은 home 위치 서보로 고정 유지되므로 별도 포즈 튜닝 불필요(자세 유지는 위치제어가 담당).
+            self.data.qpos[3:7] = SUPINE_QUAT
+            self.data.qpos[2] = 0.08
+        else:
+            # 다리 관절 초기각에 소량 노이즈 (freejoint 7 + 허리3 + 목2 이후가 다리)
+            self.data.qpos[12:] += self.np_random.uniform(-0.04, 0.04, size=self.model.nq - 12)
+
         mujoco.mj_forward(self.model, self.data)
         self._steps = 0
         self._prev_x = float(self.data.qpos[0])
-        self._prev_action = np.zeros(len(LEG_ACT_NAMES), dtype=np.float32)
+        self._prev_action = np.zeros(self.action_space.shape[0], dtype=np.float32)
         if self.energy:
             # 초기 SoC 랜덤화: 저에너지 상태의 고통도 경험하도록 (domain randomization)
             soc0 = float(self.np_random.uniform(0.25, 1.0))
@@ -108,9 +133,13 @@ class Don2Env(gym.Env):
 
     def step(self, action):
         action = np.clip(action, -1.0, 1.0).astype(np.float32)
-        targets = np.clip(self.leg_home + action * ACTION_SCALE, self.leg_lo, self.leg_hi)
         self.data.ctrl[:] = self.home_ctrl
-        self.data.ctrl[self.leg_act_ids] = targets
+        if self.mode == "toe_curl":
+            # [-1,1] -> [0, toe_hi] 장력(N). 텐던은 당김 전용이라 0 미만은 없음.
+            self.data.ctrl[self.toe_act_ids] = np.clip((action + 1.0) * 0.5 * self.toe_hi, 0.0, self.toe_hi)
+        else:
+            targets = np.clip(self.leg_home + action * ACTION_SCALE, self.leg_lo, self.leg_hi)
+            self.data.ctrl[self.leg_act_ids] = targets
 
         for _ in range(self.frame_skip):
             mujoco.mj_step(self.model, self.data)
@@ -132,13 +161,23 @@ class Don2Env(gym.Env):
             ctrl_cost = 0.03 * float(np.sum(np.square(action)))
             jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
             reward = 1.5 * (1.0 - np.tanh(2.0 * speed_error)) - ctrl_cost - jerk_cost - tilt_penalty + 0.5
-        else:  # turn_left: 목표 회전율 추종(gyro z) + 전진 유지 보너스(제자리 회전만 하지 않도록)
+        elif self.mode == "turn_left":  # 목표 회전율 추종(gyro z) + 전진 유지 보너스(제자리 회전만 방지)
             yaw_rate = float(self.data.sensordata[self._gyro_adr + 2])
             yaw_error = abs(yaw_rate - self.target_yaw_rate)
             ctrl_cost = 0.02 * float(np.sum(np.square(action)))
             jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
             reward = (1.5 * (1.0 - np.tanh(2.0 * yaw_error)) + 0.3 * max(0.0, forward_vel)
                       - ctrl_cost - jerk_cost - tilt_penalty + 0.5)
+        else:  # toe_curl: 등을 대고 누운 채 발가락 12개를 사인파 위상으로 오므렸다 폈다
+            onback = -upright  # 서 있을 땐 upright≈+1, 등을 대고 누우면 upright≈-1 → onback≈+1
+            onback_penalty = 0.5 * max(0.0, 0.7 - onback)
+            phase = 2.0 * np.pi * self.toe_curl_freq * self.data.time
+            target = 0.5 * (1.0 + np.sin(phase)) * self.toe_range_hi
+            toe_angle = self.data.qpos[self.toe_qpos_adr]
+            curl_error = float(np.mean(np.abs(toe_angle - target)))
+            ctrl_cost = 0.02 * float(np.sum(np.square(action)))
+            jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
+            reward = 1.5 * (1.0 - np.tanh(3.0 * curl_error)) - ctrl_cost - jerk_cost - onback_penalty + 0.5
         self._prev_action = action.copy()
 
         info = {"forward_vel": forward_vel, "upright": upright, "z": z,
@@ -151,7 +190,10 @@ class Don2Env(gym.Env):
             depleted = soc <= 0.0  # 완전 방전 = "기절"
             info.update({"power_W": power_W, "soc": soc, "pain": pain})
 
-        fell = (z < 0.14) or (upright < 0.4)
+        if self.mode == "toe_curl":
+            fell = onback < 0.3  # 등이 바닥에서 크게 벗어남(옆으로 굴러감) = 실패
+        else:
+            fell = (z < 0.14) or (upright < 0.4)
         if fell or depleted:
             reward -= 5.0
         self._steps += 1
