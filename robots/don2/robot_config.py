@@ -54,6 +54,10 @@ for _leg in ["FL", "FR", "RL", "RR"]:
         ACTUATOR_MODEL[f"{_leg}_toe_{_toe}_act"] = "XL330-M288"
 ACTUATOR_MODEL["neck_yaw_act"] = "XL430-W250"
 ACTUATOR_MODEL["neck_pitch_act"] = "XL430-W250"
+# 허리(상하체 연결) 3축: 팬/틸트/롤
+ACTUATOR_MODEL["spine_yaw_act"] = "XM430-W350"
+ACTUATOR_MODEL["spine_pitch_act"] = "XM430-W350"
+ACTUATOR_MODEL["spine_roll_act"] = "XM430-W350"
 
 # ---------------------------------------------------------------------------
 # 배터리 (3S LiPo 5000mAh — 실측 스펙)

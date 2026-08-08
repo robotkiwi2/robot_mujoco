@@ -33,7 +33,7 @@ def main():
     print(f"총 질량: {total:.3f} kg")
     print(f"nq={model.nq} nv={model.nv} nu={model.nu} nsensor={model.nsensor} "
           f"sensordata dim={model.nsensordata} ntendon={model.ntendon}")
-    for name in ["torso", "head", "FL_thigh", "FL_calf", "FL_foot", "FL_toe_f1"]:
+    for name in ["torso_rear", "torso_front", "head", "FL_thigh", "FL_calf", "FL_foot", "FL_toe_f1"]:
         bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
         print(f"  {name}: {model.body_mass[bid]*1000:.0f} g")
 
@@ -65,7 +65,7 @@ def main():
     for _ in range(1500):  # 3초
         mujoco.mj_step(model, data)
     z = data.qpos[2]
-    torso_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+    torso_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "torso_front")
     upright = data.xmat[torso_id].reshape(3, 3)[2, 2]
     print(f"  3초 후 torso z={z:.3f} m (목표 ~0.23), upright={upright:.3f} (1=직립)")
     print("  기립:", "안정" if (z > 0.18 and upright > 0.9) else "!! 불안정 — 튜닝 필요 !!")

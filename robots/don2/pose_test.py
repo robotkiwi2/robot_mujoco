@@ -23,10 +23,12 @@ def main():
 
     neck_yaw = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "neck_yaw_act")
     neck_pitch = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "neck_pitch_act")
+    spine_yaw = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "spine_yaw_act")
+    spine_roll = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "spine_roll_act")
     toe_acts = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, f"{leg}_toe_{t}_act")
                 for leg in ["FL", "FR", "RL", "RR"] for t in ["f1", "f2", "b"]]
 
-    torso_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+    torso_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "torso_front")
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_TENDON] = True
@@ -45,6 +47,10 @@ def main():
             # 목: 좌우 스캔 + 가벼운 상하
             data.ctrl[neck_yaw] = 0.8 * np.sin(0.5 * 2 * np.pi * 0.2 * t * 2)
             data.ctrl[neck_pitch] = 0.2 * np.sin(2 * np.pi * 0.1 * t)
+
+            # 허리: 천천히 팬(좌우 굽힘) + 미세 롤 — 상하체 관절 동작 확인용
+            data.ctrl[spine_yaw] = 0.25 * np.sin(2 * np.pi * 0.08 * t)
+            data.ctrl[spine_roll] = 0.1 * np.sin(2 * np.pi * 0.05 * t)
 
             # 발가락: 3초 주기로 쥐었다(장력 6N) 폈다(0)
             grip = 6.0 if (t % 6.0) < 3.0 else 0.0
