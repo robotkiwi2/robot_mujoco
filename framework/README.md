@@ -10,8 +10,8 @@
 | `mjcf_compose.py` | `MjSpec` API로 robot.xml + terrain.xml + objects를 런타임 조립. scene.xml 수동 복사 제거 | 미구현 |
 | `base_env.py` | `BaseRobotEnv(gym.Env)`: 센서 전체 관측, 가상 센서 슬롯(fields), 내부상태, Task 위임 | 미구현 |
 | `task_base.py` | Task 프로토콜: `compute_reward(env)`, `is_terminated(env)`, `extra_obs(env)`, `on_reset(env)` | 미구현 |
-| `interoception.py` | 내부상태(에너지/손상/독성/피로) + setpoint + 편차 계산 (DESIGN.md 고통의 입력) | 미구현 |
-| `affect.py` | pain 가중합(호르몬 변조), 전위 기반 쾌/불쾌 보상, 습관화 | 미구현 |
+| `interoception.py` | 내부상태(에너지/손상/독성/피로) + setpoint + 편차 계산 (DESIGN.md 고통의 입력) | **v0 구현** (에너지: 실부품 전력모델→SoC) |
+| `affect.py` | pain 가중합(호르몬 변조), 전위 기반 쾌/불쾌 보상, 습관화 | **v0 구현** (에너지 고통: 소비=직접비용, 저SoC=전위차분) |
 | `hormones.py` | 호르몬 동역학(분비/감쇠/포화) + 개체 프로필(성격) + 변조 인터페이스 | 미구현 |
 | `skill_manager.py` | 스킬 레지스트리 + 매니저(규칙 기반 → RL 교체 가능) — 욕구→행동 선택 | 미구현 |
 | `actuator_catalog.py` | 실제 상용 모터 스펙(무게/크기/토크/효율) 카탈로그 — CLAUDE.md "추상 부품 금지" 원칙의 데이터 기반 | 미구현 |
