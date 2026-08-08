@@ -7,6 +7,7 @@ DESIGN.md의 skill_manager 개념을 사람이 수동으로 대신하는 임시 
   1 : sprint 스킬 (최대속도)
   2 : walk 스킬 (목표속도 0.35m/s + 에너지 절약)
   3 : turn_left 스킬 (좌회전 0.6 rad/s + 전진 유지)
+  L : 세 스킬 전부 최신 체크포인트로 즉시 갱신(핫 리로드, 창 유지)
   R : 자세 리셋(home)
 
 사용법: python watch_don2_interactive.py
@@ -33,10 +34,11 @@ SKILLS = {
 
 current_skill = "sprint"   # 시작 스킬
 reset_requested = False
+reload_requested = False
 
 
 def key_callback(keycode):
-    global current_skill, reset_requested
+    global current_skill, reset_requested, reload_requested
     ch = chr(keycode) if 0 < keycode < 256 else ""
     if ch == "1":
         current_skill = "sprint"
@@ -47,22 +49,29 @@ def key_callback(keycode):
     elif ch == "3":
         current_skill = "turn_left"
         print(">> 스킬 전환: turn_left")
+    elif ch.upper() == "L":
+        reload_requested = True
     elif ch.upper() == "R":
         reset_requested = True
         print(">> 자세 리셋")
 
 
+def load_skill(name, cfg):
+    model_path, vec_path = find_latest(cfg["dir"])
+    policy = PPO.load(model_path)
+    dummy = DummyVecEnv([lambda kw=cfg["env_kwargs"]: Don2Env(**kw)])
+    normalizer = VecNormalize.load(vec_path, dummy)
+    normalizer.training = False
+    return policy, normalizer, model_path
+
+
 def main():
-    global reset_requested
+    global reset_requested, reload_requested
 
     policies, normalizers = {}, {}
     for name, cfg in SKILLS.items():
-        model_path, vec_path = find_latest(cfg["dir"])
+        policies[name], normalizers[name], model_path = load_skill(name, cfg)
         print(f"[{name}] 로드: {model_path}")
-        policies[name] = PPO.load(model_path)
-        dummy = DummyVecEnv([lambda kw=cfg["env_kwargs"]: Don2Env(**kw)])
-        normalizers[name] = VecNormalize.load(vec_path, dummy)
-        normalizers[name].training = False
 
     # 물리 시뮬레이션은 walk(에너지 포함, 153차원)를 마스터로 사용 — sprint는 앞 150차원만 사용
     env = Don2Env(mode="walk", energy=True)
@@ -76,10 +85,16 @@ def main():
         viewer.cam.elevation = -15
 
         last_print = 0.0
-        print("\n조작: [1] sprint  [2] walk  [3] turn_left  [R] 리셋\n")
+        print("\n조작: [1] sprint  [2] walk  [3] turn_left  [L] 최신으로 갱신  [R] 리셋\n")
 
         while viewer.is_running():
             t0 = time.time()
+
+            if reload_requested:
+                for name, cfg in SKILLS.items():
+                    policies[name], normalizers[name], model_path = load_skill(name, cfg)
+                    print(f"[{name}] 갱신: {model_path}")
+                reload_requested = False
 
             if reset_requested:
                 obs, _ = env.reset()
