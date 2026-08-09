@@ -20,6 +20,10 @@ def build_program_library(available_skills):
     has_walk = "walk" in available_skills
 
     patrol_steps = [Step("stand", timeout_s=2.0, min_s=2.0)]
+    if "pose:stretch" in available_skills:
+        # L0 포즈(무학습 반사)를 프로그램에 섞는 예: 순찰 사이 기지개
+        patrol_steps.append(Step("pose:stretch", timeout_s=1.5, min_s=1.5))
+        patrol_steps.append(Step("stand", timeout_s=1.0, min_s=1.0))
     if has_walk:
         patrol_steps.append(Step("walk", timeout_s=5.0, min_s=5.0))
     lib["patrol"] = Program("patrol", patrol_steps, loop=True)

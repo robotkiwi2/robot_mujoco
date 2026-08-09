@@ -72,6 +72,7 @@ def main():
                 obs, _ = env.reset()
                 env.energy_state.reset(0.9)
                 env.energy_affect.reset(0.9)
+                brain.reset()   # 시퀀서 시계 동기화 (필수 — framework/brain.py 참조)
 
             viewer.sync()
 

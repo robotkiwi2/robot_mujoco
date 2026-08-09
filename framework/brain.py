@@ -4,8 +4,11 @@
 호르몬/내수용감각은 env 내부에서 물리·고통을 변조하고(interoception/hormones/affect),
 이 파일의 루프에서는 행동 선택(놀람/휴식 인터럽트)까지 변조한다.
 """
+import numpy as np
+
 from framework.association import AssociationCortex
 from framework.cerebellum import Cerebellum
+from framework.poses import POSES, apply_pose, is_pose, pose_name
 from framework.sensory import SensoryCortex
 
 
@@ -14,16 +17,42 @@ class Brain:
         self.env = env
         self.sensory = SensoryCortex(env)
         self.cerebellum = Cerebellum(env_factory)
-        self.association = AssociationCortex(self.cerebellum.available())
+        # 레퍼토리 = 학습된 스킬(소뇌) + L0 포즈(반사층, 무학습)
+        available = self.cerebellum.available() + [f"pose:{n}" for n in POSES]
+        self.association = AssociationCortex(available)
         self.current_skill = None
+
+    def reset(self):
+        """에피소드 리셋(기절/넘어짐) 시 호출 필수 — 시뮬레이션 시간이 0으로 돌아가므로
+        시퀀서 시계도 함께 리셋해야 한다 (안 하면 t_enter가 미래가 되어 스텝에 갇힘)."""
+        self.association.active_name = None
+        self.current_skill = None
+        key = self.env.model.key_ctrl[0]
+        self.env.home_ctrl[:] = key
+        self.env.leg_home = key[self.env.leg_act_ids].copy()
 
     def step(self, obs, last_reward=0.0):
         percept = self.sensory.perceive(obs)
         skill = self.association.select(percept)
-        if self.current_skill is not None:
+        if self.current_skill is not None and not is_pose(self.current_skill):
             self.cerebellum.record_reward(self.current_skill, last_reward)
         self.current_skill = skill
-        action = self.cerebellum.act(skill, obs)
+
+        if is_pose(skill):
+            # L0 반사: env.step은 다리 목표를 leg_home + action*scale로 계산하므로
+            # 포즈의 다리각을 leg_home에, 허리/목은 home_ctrl에 주입하고 action=0을 준다.
+            p = POSES[pose_name(skill)]
+            self.env.leg_home = np.clip(np.asarray(p["legs"]), self.env.leg_lo, self.env.leg_hi)
+            self.env.home_ctrl[0:3] = p["spine"]
+            self.env.home_ctrl[3:5] = p["neck"]
+            action = np.zeros(self.env.action_space.shape[0], dtype=np.float32)
+        else:
+            # 학습 스킬로 복귀 시 home 원복 (포즈가 바꿔둔 기준 자세 복구)
+            key = self.env.model.key_ctrl[0]
+            self.env.home_ctrl[:] = key
+            self.env.leg_home = key[self.env.leg_act_ids].copy()
+            action = self.cerebellum.act(skill, obs)
+
         return action, {
             "program": self.association.active_name,
             "step": self.association.seq.step_label,
