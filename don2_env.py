@@ -237,7 +237,11 @@ class Don2Env(gym.Env):
             speed_error = abs(forward_vel - self.target_speed)
             ctrl_cost = 0.03 * float(np.sum(np.square(action)))
             jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
-            reward = 1.5 * (1.0 - np.tanh(2.0 * speed_error)) - ctrl_cost - jerk_cost - tilt_penalty + 0.5
+            # 선형 전진 항: 0속도 부근에서도 뚜렷한 기울기 제공 — "제자리 행진" 국소최적
+            # (step_in_place 승계 습관) 탈출용. 목표 초과분엔 보상 없음(절제 유지).
+            forward_term = 1.2 * float(np.clip(forward_vel, 0.0, self.target_speed)) / self.target_speed
+            reward = (1.5 * (1.0 - np.tanh(2.0 * speed_error)) + forward_term
+                      - ctrl_cost - jerk_cost - tilt_penalty + 0.5)
         elif self.mode in ("turn_left", "turn_right"):  # 목표 회전율 추종(gyro z, 우회전은 음수 목표)
             yaw_rate = float(self.data.sensordata[self._gyro_adr + 2])
             yaw_error = abs(yaw_rate - self.target_yaw_rate)
