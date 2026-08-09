@@ -46,18 +46,31 @@ class Brain:
         if required == self.env.mode:
             return obs
         env = self.env
+        env_kw_apply = lambda: (
+            setattr(env, "target_speed", kw.get("target_speed", env.target_speed)),
+            setattr(env, "target_yaw_rate", kw.get("target_yaw_rate", env.target_yaw_rate)),
+            setattr(env, "toe_curl_freq", kw.get("toe_curl_freq", env.toe_curl_freq)))
+
+        crossing = "toe_curl" in (required, env.mode)  # 자세(눕기<->서기)가 바뀌는 횡단인가
+        if not crossing:
+            # 이동 모드끼리는 물리/행동공간이 동일 — 보상 분기만 다르므로 리셋 금지!
+            # (리셋하면 로봇이 원점으로 순간이동해 항법 진행이 소실된다)
+            env.mode = required
+            env_kw_apply()
+            return obs
+
+        old_t = float(env.data.time)
         soc, dmg = env.energy_state.soc, env.impact_state.damage
         adren, cort = env.hormones.adrenaline, env.hormones.cortisol
         env.mode = required
-        env.target_speed = kw.get("target_speed", env.target_speed)
-        env.target_yaw_rate = kw.get("target_yaw_rate", env.target_yaw_rate)
-        env.toe_curl_freq = kw.get("toe_curl_freq", env.toe_curl_freq)
+        env_kw_apply()
         obs, _ = env.reset()
         env.energy_state.reset(soc)
         env.energy_affect.reset(soc)
         env.impact_state.damage = dmg
         env.hormones.adrenaline, env.hormones.cortisol = adren, cort
-        self.association.active_name = None if self.manual_skill is None else "manual"
+        # 시퀀서 시계를 새 시간축(0)으로 평행이동 — 프로그램은 계속 이어진다
+        self.association.seq._t_enter -= old_t
         return obs
 
     def step(self, obs, last_reward=0.0):

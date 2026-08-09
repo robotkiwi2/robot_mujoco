@@ -27,7 +27,7 @@ TOE_ACT_NAMES = [f"{leg}_toe_{t}_act" for leg in LEGS for t in ["f1", "f2", "b"]
 TOE_JOINT_NAMES = [f"{leg}_toe_{t}_j" for leg in LEGS for t in ["f1", "f2", "b"]]
 # home 기준 행동 오프셋 스케일 [rad] (abd, hip, knee, ankle)
 ACTION_SCALE = np.tile(np.array([0.3, 0.6, 0.6, 0.5]), 4)
-LOCOMOTION_MODES = ("stand", "sprint", "walk", "turn_left", "turn_right")
+LOCOMOTION_MODES = ("stand", "step_in_place", "sprint", "walk", "turn_left", "turn_right")
 # 180도 뒤집힌(등을 바닥에 댄) 자세의 쿼터니언 (x축 기준 roll 180도: w,x,y,z)
 SUPINE_QUAT = np.array([0.0, 1.0, 0.0, 0.0])
 
@@ -92,6 +92,12 @@ class Don2Env(gym.Env):
         self.leg_hi = self.model.actuator_ctrlrange[self.leg_act_ids, 1]
         gyro_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, "imu_gyro")
         self._gyro_adr = self.model.sensor_adr[gyro_id]
+        # 발별 접촉(발바닥+발가락3) 센서 주소 — step_in_place의 대각 교대 보상용
+        self._foot_touch_adr = {}
+        for leg in LEGS:
+            ids = [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, n)
+                   for n in (f"{leg}_sole_t", f"{leg}_toe_f1_t", f"{leg}_toe_f2_t", f"{leg}_toe_b_t")]
+            self._foot_touch_adr[leg] = [self.model.sensor_adr[i] for i in ids]
 
         self.toe_act_ids = np.array(
             [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, n) for n in TOE_ACT_NAMES]
@@ -205,7 +211,20 @@ class Don2Env(gym.Env):
         z = float(self.data.qpos[2])
         tilt_penalty = 0.5 * max(0.0, 0.7 - upright)
 
-        if self.mode == "stand":  # 제자리 기립: 이동/회전/동작을 모두 억제 (계보의 뿌리)
+        if self.mode == "step_in_place":
+            # L1 자세 프리미티브: 제자리에서 대각 발쌍(FL+RR ↔ FR+RL)을 교대로 들기.
+            # 걷기의 구성요소(리듬+균형)를 이동 없이 학습 → walk의 워름스타트 부모 후보.
+            contact = {leg: sum(float(self.data.sensordata[a]) for a in adrs) > 0.5
+                       for leg, adrs in self._foot_touch_adr.items()}
+            diag_a = contact["FL"] and contact["RR"] and not contact["FR"] and not contact["RL"]
+            diag_b = contact["FR"] and contact["RL"] and not contact["FL"] and not contact["RR"]
+            gait = 1.0 if (diag_a or diag_b) else 0.0
+            drift = float(np.linalg.norm(self.data.qpos[0:2]))
+            ctrl_cost = 0.02 * float(np.sum(np.square(action)))
+            jerk_cost = 0.02 * float(np.sum(np.square(action - self._prev_action)))
+            reward = (1.5 * gait + 0.4 * (1.0 - np.tanh(2.0 * drift))
+                      - ctrl_cost - jerk_cost - tilt_penalty + 0.4)
+        elif self.mode == "stand":  # 제자리 기립: 이동/회전/동작을 모두 억제 (계보의 뿌리)
             gyro = self.data.sensordata[self._gyro_adr:self._gyro_adr + 3]
             still = 1.0 - np.tanh(4.0 * abs(forward_vel) + 1.5 * float(np.linalg.norm(gyro)))
             ctrl_cost = 0.03 * float(np.sum(np.square(action)))

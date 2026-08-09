@@ -10,8 +10,12 @@ SKILLS = {
         combo="don2__flat__stand", parent=None, obs_dim=157,
         env_kwargs=dict(mode="stand", energy=True),
     ),
+    "step_in_place": dict(
+        combo="don2__flat__step_in_place", parent=None, obs_dim=157,
+        env_kwargs=dict(mode="step_in_place", energy=True),
+    ),
     "walk": dict(
-        combo="don2__flat__walk", parent="stand", obs_dim=157,
+        combo="don2__flat__walk", parent="step_in_place", obs_dim=157,
         env_kwargs=dict(mode="walk", target_speed=0.35, energy=True),
     ),
     "sprint": dict(
