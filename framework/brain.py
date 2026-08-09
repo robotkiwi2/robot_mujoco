@@ -10,6 +10,7 @@ from framework.association import AssociationCortex
 from framework.cerebellum import Cerebellum
 from framework.poses import POSES, apply_pose, is_pose, pose_name
 from framework.sensory import SensoryCortex
+from framework.skill_registry import SKILLS as REGISTRY
 
 
 class Brain:
@@ -21,6 +22,7 @@ class Brain:
         available = self.cerebellum.available() + [f"pose:{n}" for n in POSES]
         self.association = AssociationCortex(available)
         self.current_skill = None
+        self.manual_skill = None   # 조작패널의 스킬 직접 실행 (None=프로그램이 결정)
 
     def reset(self):
         """에피소드 리셋(기절/넘어짐) 시 호출 필수 — 시뮬레이션 시간이 0으로 돌아가므로
@@ -31,9 +33,41 @@ class Brain:
         self.env.home_ctrl[:] = key
         self.env.leg_home = key[self.env.leg_act_ids].copy()
 
+    def _sync_env_mode(self, skill, obs):
+        """스킬이 요구하는 env 모드로 전환 (예: toe_curl=12차원·눕기 <-> 이동=16차원·서기).
+        모드가 바뀌면 env를 리셋하되 내부상태(SoC/손상/호르몬)는 이어붙인다 — 몸의 자세가
+        바뀌는 것이지 정신을 잃는 게 아니므로. (LESSONS #12의 brain 경로 버전)"""
+        if is_pose(skill):
+            required = "walk" if self.env.mode == "toe_curl" else self.env.mode
+            kw = {}
+        else:
+            kw = REGISTRY[skill]["env_kwargs"]
+            required = kw["mode"]
+        if required == self.env.mode:
+            return obs
+        env = self.env
+        soc, dmg = env.energy_state.soc, env.impact_state.damage
+        adren, cort = env.hormones.adrenaline, env.hormones.cortisol
+        env.mode = required
+        env.target_speed = kw.get("target_speed", env.target_speed)
+        env.target_yaw_rate = kw.get("target_yaw_rate", env.target_yaw_rate)
+        env.toe_curl_freq = kw.get("toe_curl_freq", env.toe_curl_freq)
+        obs, _ = env.reset()
+        env.energy_state.reset(soc)
+        env.energy_affect.reset(soc)
+        env.impact_state.damage = dmg
+        env.hormones.adrenaline, env.hormones.cortisol = adren, cort
+        self.association.active_name = None if self.manual_skill is None else "manual"
+        return obs
+
     def step(self, obs, last_reward=0.0):
         percept = self.sensory.perceive(obs)
-        skill = self.association.select(percept)
+        if self.manual_skill is not None:
+            skill = self.manual_skill
+            self.association.active_name = "manual"
+        else:
+            skill = self.association.select(percept)
+        obs = self._sync_env_mode(skill, obs)
         if self.current_skill is not None and not is_pose(self.current_skill):
             self.cerebellum.record_reward(self.current_skill, last_reward)
         self.current_skill = skill

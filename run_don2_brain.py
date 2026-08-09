@@ -1,15 +1,14 @@
 """
-don2 두뇌 v0 데모 — 욕구/호르몬이 행동을 고르는 통합 루프.
+don2 두뇌 데모 — MuJoCo 뷰어 + 조작 패널(tkinter) 동시 구동.
 
-시나리오:
-- 기본: patrol 프로그램 (서기 2초 <-> 걷기 5초 반복)
-- 강한 충격(낙하 등) → 아드레날린 급등 → 연합령이 startle_freeze로 인터럽트,
-  진정되면 patrol 복귀
-- SoC < 27% → rest (에너지 보존)
+- 뷰어: 3D 시뮬레이션 (오버레이: 프로그램/욕구)
+- 조작 패널: 상태 실시간 표시 + 자동/수동 전환, 프로그램/스킬/포즈 강제 실행,
+  낙하 주입, SoC 슬라이더, 일시정지, 리셋 (framework/panel.py — 재사용 모듈)
 
-조작: [6] 로봇을 0.6m 들어올려 떨어뜨림(놀람 반사 테스트)  [R] 리셋
-실행: python run_don2_brain.py
+실행: ./.venv/Scripts/python.exe run_don2_brain.py [--world nursery]
 """
+import queue
+import sys
 import time
 
 import mujoco
@@ -18,77 +17,120 @@ import numpy as np
 
 from don2_env import Don2Env
 from framework.brain import Brain
-
-drop_requested = False
-reset_requested = False
-
-
-def key_callback(keycode):
-    global drop_requested, reset_requested
-    ch = chr(keycode) if 0 < keycode < 256 else ""
-    if ch == "6":
-        drop_requested = True
-    elif ch.upper() == "R":
-        reset_requested = True
+from framework.panel import ControlPanel
+from framework.poses import POSES
 
 
 def main():
-    global drop_requested, reset_requested
-
-    env = Don2Env(mode="walk", energy=True)   # mode는 물리 매핑용(16관절 다리 제어)
+    world = "nursery" if "--world" in sys.argv and "nursery" in sys.argv else "flat"
+    env = Don2Env(mode="walk", energy=True, world=world)
     obs, _ = env.reset(seed=0)
-    env.energy_state.reset(0.9)               # 데모: 넉넉한 초기 배터리
+    env.energy_state.reset(0.9)
     env.energy_affect.reset(0.9)
 
     brain = Brain(env, Don2Env)
-    print("레퍼토리:", brain.cerebellum.available())
+    print("레퍼토리:", brain.cerebellum.available(), "+ 포즈", list(POSES))
 
-    reward = 0.0
-    last_print = 0.0
-    with mujoco.viewer.launch_passive(env.model, env.data, key_callback=key_callback) as viewer:
+    state = {}
+    commands = queue.Queue()
+    panel = ControlPanel(
+        state, commands,
+        skills=brain.cerebellum.available(),
+        poses=list(POSES),
+        programs=list(brain.association.library),
+    )
+    panel.start()
+
+    reward, paused, last_print = 0.0, False, 0.0
+
+    def do_reset():
+        nonlocal obs, reward
+        obs, _ = env.reset()
+        env.energy_state.reset(0.9)
+        env.energy_affect.reset(0.9)
+        brain.reset()
+        reward = 0.0
+
+    with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
         viewer.cam.trackbodyid = env.front_id
         viewer.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
         viewer.cam.distance = 1.4
         viewer.cam.elevation = -15
-        print("\n조작: [6] 낙하(놀람 테스트)  [R] 리셋\n")
 
         while viewer.is_running():
             t0 = time.time()
 
-            if reset_requested:
-                obs, _ = env.reset()
-                env.energy_state.reset(0.9)
-                env.energy_affect.reset(0.9)
-                reset_requested = False
-            if drop_requested:
-                env.data.qpos[2] += 0.6       # 들어올려 떨어뜨리기
-                mujoco.mj_forward(env.model, env.data)
-                drop_requested = False
-                print(">> 낙하!")
+            # ---- 패널 명령 처리 ----
+            try:
+                while True:
+                    cmd = commands.get_nowait()
+                    kind = cmd[0]
+                    if kind == "auto":
+                        brain.manual_skill = None
+                        brain.association.override = None
+                        print(">> 자동 모드 (욕구가 선택)")
+                    elif kind == "program":
+                        brain.manual_skill = None
+                        brain.association.override = cmd[1]
+                        print(f">> 프로그램 강제: {cmd[1]}")
+                    elif kind == "skill":
+                        brain.manual_skill = cmd[1]
+                        print(f">> 스킬 수동 실행: {cmd[1]}")
+                    elif kind == "pose":
+                        brain.manual_skill = f"pose:{cmd[1]}"
+                        print(f">> 포즈: {cmd[1]}")
+                    elif kind == "drop":
+                        env.data.qpos[2] += 0.6
+                        mujoco.mj_forward(env.model, env.data)
+                        print(">> 낙하!")
+                    elif kind == "soc":
+                        env.energy_state.reset(cmd[1])
+                        env.energy_affect.reset(cmd[1])
+                        print(f">> SoC = {cmd[1]:.2f}")
+                    elif kind == "pause":
+                        paused = not paused
+                        print(">> 일시정지" if paused else ">> 재개")
+                    elif kind == "reset":
+                        do_reset()
+                        print(">> 리셋")
+            except queue.Empty:
+                pass
+
+            if paused:
+                viewer.sync()
+                time.sleep(0.05)
+                continue
 
             action, binfo = brain.step(obs, reward)
             obs, reward, term, trunc, info = env.step(action)
             if term:
-                obs, _ = env.reset()
-                env.energy_state.reset(0.9)
-                env.energy_affect.reset(0.9)
-                brain.reset()   # 시퀀서 시계 동기화 (필수 — framework/brain.py 참조)
+                do_reset()
 
             viewer.sync()
 
-            if time.time() - last_print >= 1.0:
+            # ---- 패널 상태 갱신 ----
+            p = binfo["percept"]
+            state.update({
+                "mode": "수동" if brain.manual_skill else
+                        ("강제:" + brain.association.override if brain.association.override else "자동"),
+                "program": binfo["step"],
+                "skill": binfo["skill"],
+                "soc": p.get("soc", 0), "power_W": p.get("power_W", 0),
+                "pain": p.get("energy_pain", 0) + p.get("damage_pain", 0),
+                "adrenaline": p.get("adrenaline", 0), "cortisol": p.get("cortisol", 0),
+                "damage": p.get("damage", 0), "vx": info["forward_vel"],
+            })
+
+            if time.time() - last_print >= 2.0:
                 last_print = time.time()
-                p = binfo["percept"]
                 overlay = (f"program: {binfo['step']}\nskill: {binfo['skill']}",
-                           f"soc={p['soc']:.2f}  P={p['power_W']:.0f}W\n"
-                           f"adrenaline={p['adrenaline']:.2f}  cortisol={p['cortisol']:.3f}\n"
-                           f"damage={p['damage']:.2f}  pain={p['energy_pain']+p['damage_pain']:.2f}")
+                           f"soc={p.get('soc',0):.2f}  P={p.get('power_W',0):.0f}W\n"
+                           f"A={p.get('adrenaline',0):.2f} C={p.get('cortisol',0):.3f} "
+                           f"dmg={p.get('damage',0):.2f}")
                 viewer.set_texts([
                     (mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtGridPos.mjGRID_TOPLEFT, "brain", overlay[0]),
                     (mujoco.mjtFont.mjFONT_NORMAL, mujoco.mjtGridPos.mjGRID_BOTTOMLEFT, "drives", overlay[1]),
                 ])
-                print(f"[{binfo['step']}] vx={info['forward_vel']:+.2f} soc={p['soc']:.2f} "
-                      f"A={p['adrenaline']:.2f} dmg={p['damage']:.2f}", flush=True)
 
             dt = env.model.opt.timestep * env.frame_skip - (time.time() - t0)
             if dt > 0:

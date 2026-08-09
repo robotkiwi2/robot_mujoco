@@ -62,8 +62,14 @@ class AssociationCortex:
         self.library = build_program_library(available_skills)
         self.seq = Sequencer()
         self.active_name = None
+        self.override = None   # 조작패널 등 외부에서 프로그램 강제 (None=자동/욕구 선택)
 
     def _wanted(self, percept):
+        if self.override is not None:
+            return self.override
+        return self._wanted_auto(percept)
+
+    def _wanted_auto(self, percept):
         adren = percept.get("adrenaline", 0.0)
         soc = percept.get("soc", 1.0)
         if self.active_name == "startle_freeze":
