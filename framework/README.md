@@ -10,9 +10,9 @@
 | `mjcf_compose.py` | `MjSpec` API로 robot.xml + terrain.xml + objects를 런타임 조립. scene.xml 수동 복사 제거 | 미구현 |
 | `base_env.py` | `BaseRobotEnv(gym.Env)`: 센서 전체 관측, 가상 센서 슬롯(fields), 내부상태, Task 위임 | 미구현 |
 | `task_base.py` | Task 프로토콜: `compute_reward(env)`, `is_terminated(env)`, `extra_obs(env)`, `on_reset(env)` | 미구현 |
-| `interoception.py` | 내부상태(에너지/손상/독성/피로) + setpoint + 편차 계산 (DESIGN.md 고통의 입력) | **v0 구현** (에너지: 실부품 전력모델→SoC) |
-| `affect.py` | pain 가중합(호르몬 변조), 전위 기반 쾌/불쾌 보상, 습관화 | **v0 구현** (에너지 고통: 소비=직접비용, 저SoC=전위차분) |
-| `hormones.py` | 호르몬 동역학(분비/감쇠/포화) + 개체 프로필(성격) + 변조 인터페이스 | 미구현 |
+| `interoception.py` | 내부상태(에너지/손상/독성/피로) + setpoint + 편차 계산 (DESIGN.md 고통의 입력) | **v1 구현** (에너지 SoC/전력 + 충격/손상: 서브스텝 피크 가속도, 임계 50m/s² — 정상 착지는 안 아픔, 손상 반감기 30s 회복) |
+| `affect.py` | pain 가중합(호르몬 변조), 전위 기반 쾌/불쾌 보상, 습관화 | **v1 구현** (에너지+충격 고통, 흐름=직접비용/상태=전위차분 이원 구조 유지) |
+| `hormones.py` | 호르몬 동역학 + 개체 프로필(성격) + 변조 인터페이스 | **v0 구현** (아드레날린: 토크+30%·진통·소모+50%, 반감기 3s / 코르티솔: 민감화·만성비용, 반감기 90s. 물리 토크 변조 검증됨) |
 | `skill_registry.py` | 소뇌 레퍼토리: 스킬 목록+발달 계보(parent) 단일 출처 | **v0 구현** |
 | `residual.py` | 대뇌 개입 채널: 동결 스킬 + 잔차 보정, 주의 비용 | **v0 구현** |
 | `skill_manager.py` | 매니저(규칙 기반 → RL 교체 가능) — 욕구→스킬 선택 | 미구현 |

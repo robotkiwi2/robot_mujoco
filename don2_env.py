@@ -13,8 +13,9 @@ import mujoco
 import numpy as np
 from gymnasium import spaces
 
-from framework.affect import EnergyAffect
-from framework.interoception import EnergyState
+from framework.affect import EnergyAffect, ImpactAffect
+from framework.hormones import Hormones
+from framework.interoception import EnergyState, ImpactState
 from robots.don2 import robot_config as rc
 
 ROBOT_XML = "robots/don2/don2.xml"  # 프로젝트 루트 기준 상대경로 (한글경로 이슈 회피)
@@ -90,8 +91,14 @@ class Don2Env(gym.Env):
                 base_power_W=rc.COMPUTE_POWER_W + rc.SENSOR_POWER_W,
             )
             self.energy_affect = EnergyAffect()
+            # 충격/손상 + 호르몬 (아드레날린/코르티솔) — DESIGN.md 운동제어/정서 층
+            self.impact_state = ImpactState(self.model)
+            self.impact_affect = ImpactAffect()
+            self.hormones = Hormones()
+            self._leg_forcerange_base = self.model.actuator_forcerange[self.leg_act_ids].copy()
 
-        n_obs = self.model.nsensordata + 1 + (3 if self.energy else 0)
+        # 관측: 센서 + 높이 + (에너지3 + 충격/손상2 + 호르몬2 = 7)
+        n_obs = self.model.nsensordata + 1 + (7 if self.energy else 0)
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=(n_obs,), dtype=np.float32)
         n_act = len(TOE_ACT_NAMES) if mode == "toe_curl" else len(LEG_ACT_NAMES)
         self.action_space = spaces.Box(-1.0, 1.0, shape=(n_act,), dtype=np.float32)
@@ -104,8 +111,12 @@ class Don2Env(gym.Env):
         base = [self.data.sensordata, [self.data.qpos[2]]]
         if self.energy:
             es, af = self.energy_state, self.energy_affect
-            pain = af.state_pain(es.soc) + af.consumption_pain(es.power_W)
-            base.append([es.soc, es.power_W / af.power_ref_W, pain])
+            ims, imf, hor = self.impact_state, self.impact_affect, self.hormones
+            pain = (af.state_pain(es.soc) + af.consumption_pain(es.power_W)
+                    + imf.damage_pain(ims.damage) * hor.acute_pain_gain())
+            base.append([es.soc, es.power_W / af.power_ref_W, pain,
+                         ims.impact_norm, ims.damage,
+                         hor.adrenaline, hor.cortisol])
         return np.concatenate(base).astype(np.float32)
 
     def reset(self, seed=None, options=None):
@@ -134,6 +145,10 @@ class Don2Env(gym.Env):
             soc0 = float(self.np_random.uniform(0.25, 1.0))
             self.energy_state.reset(soc0)
             self.energy_affect.reset(soc0)
+            self.impact_state.reset()
+            self.impact_affect.reset()
+            self.hormones.reset()
+            self.model.actuator_forcerange[self.leg_act_ids] = self._leg_forcerange_base
         return self._get_obs(), {}
 
     def step(self, action):
@@ -148,6 +163,8 @@ class Don2Env(gym.Env):
 
         for _ in range(self.frame_skip):
             mujoco.mj_step(self.model, self.data)
+            if self.energy:
+                self.impact_state.substep_sample(self.data)  # 짧은 충격 스파이크 피크 추적
 
         x = float(self.data.qpos[0])
         dt = self.model.opt.timestep * self.frame_skip
@@ -195,11 +212,27 @@ class Don2Env(gym.Env):
                 "yaw_rate": float(self.data.sensordata[self._gyro_adr + 2])}
         depleted = False
         if self.energy:
-            power_W, soc = self.energy_state.step(self.data, dt)
-            energy_reward, pain = self.energy_affect.reward_terms(soc, power_W)
-            reward += energy_reward
+            # 1) 충격 확정 → 2) 호르몬 갱신(분비/감쇠) → 3) 호르몬 배율로 고통/에너지 계산
+            impact_norm, damage = self.impact_state.step(dt)
+            prelim_pain = self.impact_affect.w_impact * min(2.0, impact_norm)
+            self.hormones.step(dt, impact_norm, prelim_pain)
+
+            power_W, soc = self.energy_state.step(self.data, dt,
+                                                  consumption_gain=self.hormones.energy_gain())
+            energy_reward, e_pain = self.energy_affect.reward_terms(soc, power_W)
+            impact_reward, i_pain = self.impact_affect.reward_terms(
+                impact_norm, damage, acute_gain=self.hormones.acute_pain_gain())
+            reward += energy_reward + impact_reward
+
+            # 아드레날린 토크 부스트: 다리 서보 forcerange를 순간적으로 확대 (물리 변조)
+            self.model.actuator_forcerange[self.leg_act_ids] = \
+                self._leg_forcerange_base * self.hormones.torque_gain()
+
             depleted = soc <= 0.0  # 완전 방전 = "기절"
-            info.update({"power_W": power_W, "soc": soc, "pain": pain})
+            info.update({"power_W": power_W, "soc": soc, "pain": e_pain + i_pain,
+                         "impact": impact_norm, "damage": damage,
+                         "adrenaline": self.hormones.adrenaline,
+                         "cortisol": self.hormones.cortisol})
 
         if self.mode == "toe_curl":
             fell = onback < 0.3  # 등이 바닥에서 크게 벗어남(옆으로 굴러감) = 실패

@@ -37,3 +37,28 @@ class EnergyAffect:
         contrib = -cp + (self._prev_state_pain - sp)
         self._prev_state_pain = sp
         return contrib, sp + cp
+
+
+class ImpactAffect:
+    """충격/손상 고통 (에너지와 같은 이원 구조):
+    - 충격 고통(흐름): 임계 초과 충격 크기에 비례, 스텝당 직접 비용.
+      호르몬 배율(acute_pain_gain: 아드레날린 진통/코르티솔 민감화)이 곱해진다.
+    - 손상 고통(상태): damage 제곱 — 전위 차분으로 보상화 (자해 루프 방지)."""
+
+    def __init__(self, w_impact: float = 3.0, w_damage: float = 1.5):
+        self.w_impact = w_impact
+        self.w_damage = w_damage
+        self._prev_damage_pain = 0.0
+
+    def damage_pain(self, damage: float) -> float:
+        return self.w_damage * damage * damage
+
+    def reset(self, damage: float = 0.0):
+        self._prev_damage_pain = self.damage_pain(damage)
+
+    def reward_terms(self, impact_norm: float, damage: float, acute_gain: float = 1.0):
+        ip = self.w_impact * min(2.0, impact_norm) * acute_gain
+        dp = self.damage_pain(damage) * acute_gain
+        contrib = -ip + (self._prev_damage_pain - dp)
+        self._prev_damage_pain = dp
+        return contrib, ip + dp
