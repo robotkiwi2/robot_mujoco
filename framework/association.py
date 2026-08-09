@@ -31,8 +31,25 @@ def build_program_library(available_skills):
         loop=False,
     )
 
-    # 휴식: 에너지 아끼기 (월드에 충전소가 생기면 '충전소 찾기' 프로그램으로 대체 예정)
+    # 휴식: 에너지 아끼기 (냄새/충전소가 없는 월드의 최선)
     lib["rest"] = Program("rest", [Step("stand", timeout_s=10.0)], loop=True)
+
+    # 충전소 찾아가기: 냄새 좌우차로 방향을 잡고 → 걸어가고 → 패드 위에서 충전.
+    # 방향 규칙은 프로그램 작성자가 명시한 것 (의도적 배치 — 무작위 혼합 아님).
+    has_turns = "turn_left" in available_skills and "turn_right" in available_skills
+    steps = []
+    if has_turns:
+        steps.append(Step(
+            skill=lambda p: "turn_left" if p.get("scent_dg", 0.0) > 0 else "turn_right",
+            until=lambda p: abs(p.get("scent_dg", 0.0)) < 0.02 * max(p.get("scent", 1e-6), 1e-6) * 20
+                            or p.get("scent", 0.0) > 0.5,
+            timeout_s=4.0, min_s=0.3))
+    if has_walk:
+        steps.append(Step("walk",
+                          until=lambda p: p.get("on_charger", False),
+                          timeout_s=12.0))
+    steps.append(Step("stand", until=lambda p: p.get("soc", 0.0) > 0.85, timeout_s=30.0))
+    lib["seek_charger"] = Program("seek_charger", steps, loop=True)
     return lib
 
 
@@ -50,7 +67,14 @@ class AssociationCortex:
                 return "startle_freeze"
         elif adren > 0.5:
             return "startle_freeze"
-        if soc < 0.27 or (self.active_name == "rest" and soc < 0.30):
+        # 저에너지: 냄새(충전소 단서)가 있으면 찾아가고, 없으면 아껴 쓰기.
+        # seek_charger는 일단 시작하면 충분히 충전(85%)될 때까지 유지 (중도 포기 방지)
+        low = soc < 0.35 or (self.active_name == "rest" and soc < 0.5) \
+              or (self.active_name == "seek_charger" and soc < 0.85)
+        if low:
+            if percept.get("scent", 0.0) > 0.01 and "seek_charger" in self.library \
+                    and len(self.library["seek_charger"].steps) > 1:
+                return "seek_charger"
             return "rest"
         return "patrol"
 

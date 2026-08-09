@@ -12,10 +12,16 @@ from typing import Callable, List, Optional
 
 @dataclass
 class Step:
-    skill: str
+    # skill: 스킬 이름(str) 또는 지각 기반 선택 규칙(callable(percept)->str).
+    # callable도 "프로그램 작성자가 명시한 규칙"이므로 의도적 배치 원칙에 부합
+    # (예: 냄새가 왼쪽에서 나면 turn_left — 무작위 혼합이 아님).
+    skill: object
     until: Optional[Callable] = None   # until(percept) -> bool. None이면 timeout만
     timeout_s: float = 1e9
     min_s: float = 0.0
+
+    def resolve_skill(self, percept) -> str:
+        return self.skill(percept) if callable(self.skill) else self.skill
 
 
 @dataclass
@@ -59,7 +65,7 @@ class Sequencer:
                 else:
                     return None
             step = self.program.steps[self.idx]
-        return step.skill
+        return step.resolve_skill(percept)
 
     @property
     def step_label(self):
@@ -67,4 +73,5 @@ class Sequencer:
             return "-"
         if self.idx >= len(self.program.steps):
             return f"{self.program.name}:done"
-        return f"{self.program.name}[{self.idx}]:{self.program.steps[self.idx].skill}"
+        s = self.program.steps[self.idx].skill
+        return f"{self.program.name}[{self.idx}]:{s if isinstance(s, str) else 'dyn'}"

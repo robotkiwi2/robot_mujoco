@@ -38,4 +38,14 @@ class SensoryCortex:
                                + env.energy_affect.consumption_pain(env.energy_state.power_W),
                 "damage_pain": env.impact_affect.damage_pain(env.impact_state.damage),
             })
+        # 후각 (nursery 등 냄새 필드가 있는 월드): 채널0 = 충전소/먹이A
+        if getattr(env, "scent_field", None) is not None:
+            left, right = float(env.scent_nose[0][0]), float(env.scent_nose[1][0])
+            p.update({
+                "scent_left": left,
+                "scent_right": right,
+                "scent": 0.5 * (left + right),
+                "scent_dg": left - right,   # 양수 = 소스가 왼쪽 → 좌회전해야 함
+                "on_charger": env.on_charger,
+            })
         return p

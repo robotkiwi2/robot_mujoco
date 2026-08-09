@@ -1,5 +1,10 @@
 # worlds/ — 학습 세계(월드) 레이어
 
+> **현황(v0)**: 첫 오브젝트/필드(충전소+냄새)는 임시로 don2_env의 `world="nursery"`
+> 파라미터로 구현되어 있다 (framework/fields.py의 ScentField 사용). 아래의
+> terrain/objects/presets 분해 구조로 이관 예정. **필드 값은 스킬 정책 관측이 아니라
+> 지각(percept) 층에만 들어간다** — 그래서 월드에 필드를 추가해도 스킬 재학습이 불필요.
+
 월드는 단일 XML이 아니라 **3개 레이어의 합성**으로 만든다:
 
 ```
