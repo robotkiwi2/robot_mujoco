@@ -223,6 +223,17 @@ terrain 폴더에는 XML과 함께 zone map(파이썬/yaml)을 쌍으로 둔다.
 3. `hazard_valley` — 독성 먹이/웅덩이 (B vs B+C 냄새 변별, 회피)
 4. `diurnal_world` — 낮/밤 + 희소성 (장기 전략, 휴식 타이밍)
 
+## 두뇌 지도 — 구현 매핑 (v0 구동 중)
+
+| 뇌 부위 | 모듈 | 역할 |
+|---|---|---|
+| 감각피질 | `sensory.py` | 원시센서+내수용+호르몬 → 구조화된 지각(percept). 정책은 평평한 벡터, 상위층은 이름 붙은 지각 사용 |
+| 연합령 | `association.py` | 욕구 평가 → 프로그램 선택/인터럽트. v0 규칙: 아드레날린>0.5→놀람정지(히스테리시스 0.15), SoC<0.27→휴식, 기본 순찰. LLM 숙고 훅 위치 |
+| 운동피질 | `program.py` | 행동 프로그램 시퀀서 — 스킬의 의도적 배치(until 술어/timeout/min_s) 실행 |
+| 소뇌 | `cerebellum.py` + `skill_registry.py` | 악보 재생(정규화 포함 순전파 1회) + 스킬별 성과 EMA(가소성 입력) |
+| 호르몬/내부감각 | `hormones.py`/`interoception.py`/`affect.py` | 물리(토크)·고통(진통/민감화)·행동(놀람/휴식 인터럽트) 3중 변조 |
+| 통합 | `brain.py`, 데모 `run_don2_brain.py` | 감각→연합→프로그램→소뇌→근육 루프. 검증: patrol→(낙하)→startle→(저SoC)→rest 전이 확인 |
+
 ## 구현 모듈 매핑 (framework/)
 - `interoception.py` — 내부상태 + setpoint + 편차 계산 (구 internal_state 계획을 대체)
 - `affect.py` — pain 가중합(호르몬 변조 포함), 전위 기반 보상, 습관화
