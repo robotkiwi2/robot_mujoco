@@ -35,8 +35,6 @@ def build_program_library(available_skills):
         loop=False,
     )
 
-    # 휴식: 에너지 아끼기 (냄새/충전소가 없는 월드의 최선)
-    lib["rest"] = Program("rest", [Step("stand", timeout_s=10.0)], loop=True)
 
     # 충전소 찾아가기: 냄새 좌우차로 방향을 잡고 → 걸어가고 → 패드 위에서 충전.
     # 방향 규칙은 프로그램 작성자가 명시한 것 (의도적 배치 — 무작위 혼합 아님).
@@ -49,13 +47,17 @@ def build_program_library(available_skills):
                             or p.get("scent", 0.0) > 0.5,
             timeout_s=4.0, min_s=0.3))
     if has_walk:
-        # 패드 첫 접촉이 아니라 중심부(냄새 ≥0.9 ≈ 중심 16cm 이내)까지 걸어 들어간다
-        # — 가장자리에 멈추면 서 있는 동안 이탈해 충전이 끊긴다 (실측 교훈)
-        steps.append(Step("walk",
-                          until=lambda p: p.get("scent", 0.0) > 0.9,
-                          timeout_s=15.0))
-    steps.append(Step("stand", until=lambda p: p.get("soc", 0.0) > 0.85, timeout_s=40.0))
+        # 패드 접촉(on_charger, 반경 기준 — 경로가 옆으로 비껴도 확실히 발화)까지 걷고,
+        # 이어서 0.8초 더 걸어 중심부로 파고든다 (가장자리 정지 → 이탈 방지)
+        steps.append(Step("walk", until=lambda p: p.get("on_charger", False), timeout_s=15.0))
+        steps.append(Step("walk", timeout_s=0.8, min_s=0.8))
+    # 충전 대기는 stand '스킬'이 아니라 pose:home(L0 서보 홀드) — 보행 관성이 남은
+    # 분포 밖 상태에서 stand 정책은 수 초 뒤 넘어진다(실측). 서보 홀드는 무조건 안정.
+    steps.append(Step("pose:home", until=lambda p: p.get("soc", 0.0) > 0.85, timeout_s=40.0))
     lib["seek_charger"] = Program("seek_charger", steps, loop=True)
+
+    # rest도 같은 이유로 pose:home 사용 (보행 중 저에너지 진입 가능)
+    lib["rest"] = Program("rest", [Step("pose:home", timeout_s=10.0)], loop=True)
     return lib
 
 
