@@ -49,10 +49,12 @@ def build_program_library(available_skills):
                             or p.get("scent", 0.0) > 0.5,
             timeout_s=4.0, min_s=0.3))
     if has_walk:
+        # 패드 첫 접촉이 아니라 중심부(냄새 ≥0.9 ≈ 중심 16cm 이내)까지 걸어 들어간다
+        # — 가장자리에 멈추면 서 있는 동안 이탈해 충전이 끊긴다 (실측 교훈)
         steps.append(Step("walk",
-                          until=lambda p: p.get("on_charger", False),
-                          timeout_s=12.0))
-    steps.append(Step("stand", until=lambda p: p.get("soc", 0.0) > 0.85, timeout_s=30.0))
+                          until=lambda p: p.get("scent", 0.0) > 0.9,
+                          timeout_s=15.0))
+    steps.append(Step("stand", until=lambda p: p.get("soc", 0.0) > 0.85, timeout_s=40.0))
     lib["seek_charger"] = Program("seek_charger", steps, loop=True)
     return lib
 
@@ -78,8 +80,9 @@ class AssociationCortex:
         elif adren > 0.5:
             return "startle_freeze"
         # 저에너지: 냄새(충전소 단서)가 있으면 찾아가고, 없으면 아껴 쓰기.
-        # seek_charger는 일단 시작하면 충분히 충전(85%)될 때까지 유지 (중도 포기 방지)
-        low = soc < 0.35 or (self.active_name == "rest" and soc < 0.5) \
+        # seek 진입 0.45 (넘어져 깨어나도 미완의 충전 의도가 이어지도록 — 실측 교훈),
+        # 일단 시작하면 충분히 충전(85%)될 때까지 유지 (중도 포기 방지)
+        low = soc < 0.45 or (self.active_name == "rest" and soc < 0.5) \
               or (self.active_name == "seek_charger" and soc < 0.85)
         if low:
             if percept.get("scent", 0.0) > 0.01 and "seek_charger" in self.library \
