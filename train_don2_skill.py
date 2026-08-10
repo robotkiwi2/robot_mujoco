@@ -28,6 +28,10 @@ def main():
     ap.add_argument("--steps", type=int, required=True)
     ap.add_argument("--init-from", default=None, choices=list(SKILLS),
                     help="워름스타트 부모 스킬 (가중치+정규화 통계 승계)")
+    ap.add_argument("--ent", type=float, default=None,
+                    help="엔트로피 계수 재정의 (탐험 강화 이어학습용, 예: 0.01)")
+    ap.add_argument("--std-boost", type=float, default=0.0,
+                    help="정책 log_std 가산 (예: 0.5 = 탐험 노이즈 확대) — --init-from과 함께")
     args = ap.parse_args()
 
     cfg = SKILLS[args.skill]
@@ -42,9 +46,17 @@ def main():
         vec = VecNormalize.load(os.path.join(parent_dir, "vecnormalize_final.pkl"), vec)
         vec.training = True
         vec.norm_reward = True
-        model = PPO.load(os.path.join(parent_dir, "ppo_final.zip"), env=vec,
-                         tensorboard_log=ldir)
-        print(f"[warm-start] {args.skill} <- {args.init_from}", flush=True)
+        load_kw = dict(env=vec, tensorboard_log=ldir)
+        if args.ent is not None:
+            load_kw["ent_coef"] = args.ent
+        model = PPO.load(os.path.join(parent_dir, "ppo_final.zip"), **load_kw)
+        if args.std_boost:
+            import torch
+            with torch.no_grad():
+                model.policy.log_std += args.std_boost
+            print(f"[std-boost] log_std += {args.std_boost}", flush=True)
+        print(f"[warm-start] {args.skill} <- {args.init_from}"
+              + (f" (ent={args.ent})" if args.ent is not None else ""), flush=True)
     else:
         vec = VecNormalize(vec, norm_obs=True, norm_reward=True, clip_obs=10.0)
         model = PPO("MlpPolicy", vec, verbose=1,
